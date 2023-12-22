@@ -31,6 +31,8 @@ static unique_ptr<PathHandleGraph> load_graph(istream& graph_stream);
 // start with really barebones placeholde implementation
 static void convert_node(PathPositionHandleGraph& graph, handle_t handle, path_handle_t ref_path_handle, LW* output);
 static void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_index, net_handle_t chain, const string& ref_path);
+static void convert_snarl(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_index, net_handle_t snarl,
+                          path_handle_t ref_path_handle, LW* output);
 
 void help(char** argv) {
   cerr << "usage: " << argv[0] << " [options] <graph> <distance-index>" << endl
@@ -155,10 +157,11 @@ void convert_node(PathPositionHandleGraph& graph, handle_t handle, path_handle_t
 
     for (step_handle_t& step_handle : steps) {
         Alignment_Row* row = (Alignment_Row*)st_calloc(1, sizeof(Alignment_Row));
-        row->sequence_name = stString_copy(graph.get_path_name(ref_path_handle).c_str());
+        path_handle_t step_path_handle = graph.get_path_handle_of_step(step_handle);
+        row->sequence_name = stString_copy(graph.get_path_name(step_path_handle).c_str());
         row->start = graph.get_position_of_step(step_handle);
         row->length = alignment->column_number;
-        row->sequence_length = graph.get_path_length(ref_path_handle);
+        row->sequence_length = graph.get_path_length(step_path_handle);
         // todo: check this strand logic
         row->strand = graph.get_is_reverse(handle) == graph.get_is_reverse(graph.get_handle_of_step(step_handle));
         if (row->strand) {
@@ -198,6 +201,41 @@ void convert_node(PathPositionHandleGraph& graph, handle_t handle, path_handle_t
     maf_write_block(alignment, output);
 
     alignment_destruct(alignment, true);
+}
+
+void convert_snarl(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_index, net_handle_t snarl,
+                   path_handle_t ref_path_handle, LW* output) {
+
+    net_handle_t start_bound = distance_index.get_bound(snarl, false, true);
+    net_handle_t end_bound = distance_index.get_bound(snarl, true, false);
+
+    handle_t start_handle = distance_index.get_handle(start_bound, &graph);
+    handle_t end_handle = distance_index.get_handle(end_bound, &graph);
+
+    cout << "snarl goes from " << graph.get_id(start_handle) << ":" << graph.get_is_reverse(start_handle) << " to "
+         << graph.get_id(end_handle) << ":" << graph.get_is_reverse(end_handle) << endl;
+
+    // use start-to-end bfs search to order the blocks
+    deque<handle_t> bfs_queue;
+    unordered_set<handle_t> visited = {start_handle, end_handle, graph.flip(start_handle)};    
+    graph.follow_edges(start_handle, false, [&](handle_t other_handle) {
+        bfs_queue.push_back(other_handle);                
+    });
+
+    while (!bfs_queue.empty()) {
+        handle_t handle = bfs_queue.front();
+        bfs_queue.pop_front();
+        if (!visited.count(handle)) {
+            convert_node(graph,  handle, ref_path_handle, output);
+            visited.insert(handle);
+            graph.follow_edges(handle, false, [&](handle_t other_handle) {
+                bfs_queue.push_back(other_handle);
+            });
+            graph.follow_edges(handle, true, [&](handle_t other_handle) {
+                bfs_queue.push_back(other_handle);
+            });
+        }
+    }
 }
 
 void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_index, net_handle_t chain, const string& ref_path) {
@@ -255,16 +293,21 @@ void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_
         end_handle = graph.flip(temp_handle);
     }
 
-    // placeholder: just convert the reference path
-
     LW *output = LW_construct(stdout, false);
-    
-    bool in_chain = false;
-    graph.for_each_step_in_path(ref_path_handle, [&](step_handle_t step_handle) {
-        handle_t handle = graph.get_handle_of_step(step_handle);
-        convert_node(graph, handle, ref_path_handle, output);
-    });
 
+    // convert the chain, one node/snarl at a time
+    distance_index.for_each_child(chain, [&](net_handle_t net_handle) {
+        if (distance_index.is_node(net_handle)) {            
+            convert_node(graph, distance_index.get_handle(net_handle, &graph), ref_path_handle, output);
+        } else if (distance_index.is_snarl(net_handle)) {
+            convert_snarl(graph, distance_index, net_handle, ref_path_handle, output);
+        } else if (distance_index.is_chain(net_handle)) {
+            cerr << "TODO: CHILD CHAIN" << endl;
+        } else {
+            assert(false);
+        }
+    });
+    
     LW_destruct(output, false);
 }
 
