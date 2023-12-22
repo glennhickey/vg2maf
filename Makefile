@@ -7,7 +7,7 @@ libbdsgPath = deps/libbdsg-easy
 libbdsgLibs = ${libbdsgPath}/lib/libbdsg.a ${libbdsgPath}/lib/libhandlegraph.a ${libbdsgPath}/lib/libsdsl.a ${libbdsgPath}/lib/libdivsufsort.a ${libbdsgPath}/lib/libdivsufsort64.a
 
 CXX ?= g++
-CXXFLAGS += -std=c++14 -I deps/taffy/taffy/inc -I deps/libbdsg-easy/include -I deps/libvgio/include/ 
+CXXFLAGS += -std=c++14 -I deps/taffy/taffy/submodules/sonLib/C/inc/ -I deps/taffy/taffy/inc -I deps/libbdsg-easy/include -I deps/libvgio/include/ 
 
 static:
 	CFLAGS="$${CFLAGS} -static" \
@@ -44,7 +44,7 @@ deps/libvgio/build/libvgio.a:
 	cd deps/libvgio && rm -rf build && mkdir build && cd build && cmake .. && ${MAKE}
 
 vg2maf : vg2maf.o deps/taffy/lib/libstTaf.a ${libbdsgPath}/lib/libbdsg.a deps/libvgio/build/libvgio.a
-	${CXX} ${CXXFLAGS} -lm -lz -llzma -lbz2 -ldeflate -fopenmp -pthread vg2maf.o deps/taffy/lib/libstTaf.a ${libbdsgLibs} -ljansson deps/libvgio/build/libvgio.a -lprotobuf -lhts -o vg2maf
+	${CXX} ${CXXFLAGS} -lm -lz -llzma -lbz2 -ldeflate -fopenmp -pthread vg2maf.o deps/taffy/lib/libstTaf.a deps/taffy/lib/libsonLib.a ${libbdsgLibs} -ljansson deps/libvgio/build/libvgio.a -lprotobuf -lhts -o vg2maf
 
 #test :
 #	make
