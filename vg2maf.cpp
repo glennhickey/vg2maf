@@ -16,6 +16,7 @@ using namespace std;
 #include "bdsg/snarl_distance_index.hpp"
 #include "bdsg/overlays/overlay_helper.hpp"
 #include "vg/io/vpkg.hpp"
+#include "stream_index.hpp"
 extern "C" {
 #include "taf.h"
 #include "sonLib.h"
@@ -29,10 +30,12 @@ using namespace bdsg;
 static unique_ptr<PathHandleGraph> load_graph(istream& graph_stream);
 
 // start with really barebones placeholde implementation
-static void convert_node(PathPositionHandleGraph& graph, handle_t handle, path_handle_t ref_path_handle, LW* output);
-static void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_index, net_handle_t chain, const string& ref_path);
-static void convert_snarl(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_index, net_handle_t snarl,
-                          path_handle_t ref_path_handle, LW* output);
+static void convert_node(PathPositionHandleGraph& graph, vg::GAMIndex gam_index, handle_t handle,
+                         path_handle_t ref_path_handle, LW* output);
+static void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_index, vg::GAMIndex* gam_index,
+                          net_handle_t chain, const string& ref_path);
+static void convert_snarl(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_index, vg::GAMIndex* gam_index,
+                          net_handle_t snarl, path_handle_t ref_path_handle, LW* output);
 
 void help(char** argv) {
   cerr << "usage: " << argv[0] << " [options] <graph> <distance-index>" << endl
@@ -41,14 +44,16 @@ void help(char** argv) {
        << "options: " << endl
        << "    -p, --progress            Print progress" << endl
        << "    -d, --dist FILE           Distance index from vg index -j [REQUIRED]" << endl
-       << "    -r, --ref-path NAME       Name of reference path [REQUIRED]" << endl
+       << "    -r, --ref-prefix NAME     Name or prefix of reference path [REQUIRED]" << endl
+       << "    -g, --gam FILE            GAM file. Must have .gai index from \"vg gamsort x.gam -i x.sort.gai > x.sort.gam\"" << endl
        << endl;
 }    
 
 int main(int argc, char** argv) {
 
-    string ref_path;
+    string ref_path_prefix;
     string distance_index_filename;
+    string gam_filename;
     bool progress = false;
     int c;
     optind = 1; 
@@ -59,12 +64,13 @@ int main(int argc, char** argv) {
             {"progress", no_argument, 0, 'p'},
             {"ref-path", required_argument, 0, 'r'},
             {"dist", required_argument, 0, 'd'},
+            {"gam", required_argument, 0, 'g'},
             {0, 0, 0, 0}
         };
 
         int option_index = 0;
 
-        c = getopt_long (argc, argv, "hpr:d:",
+        c = getopt_long (argc, argv, "hpr:d:g:",
                          long_options, &option_index);
 
         // Detect the end of the options.
@@ -77,10 +83,13 @@ int main(int argc, char** argv) {
             progress = true;
             break;
         case 'r':
-            ref_path = optarg;
+            ref_path_prefix = optarg;
             break;
         case 'd':
             distance_index_filename = optarg;
+            break;
+        case 'g':
+            gam_filename = optarg;
             break;
         case 'h':
         case '?':
@@ -101,7 +110,7 @@ int main(int argc, char** argv) {
         cerr << "[vg2maf] error: Distance index must be specified with -d" << endl;
         return 1;
     }
-    if (ref_path.empty()) {
+    if (ref_path_prefix.empty()) {
         cerr << "[vg2maf] error: Reference path must be speficied with -r" << endl;
         return 1;
     }
@@ -129,17 +138,32 @@ int main(int argc, char** argv) {
         cerr << "[vg2maf]: Loaded distance index" << endl;
     }
 
+    unique_ptr<vg::GAMIndex> gam_index;
+    if (!gam_filename.empty()) {
+        string gam_index_filename = gam_filename + ".gai";
+        ifstream gam_index_file(gam_index_filename);
+        if (!gam_index_file) {
+            cerr << "vg2maf]: Unable to open gam index " << gam_index_filename << endl;
+            return 1;
+        }
+        gam_index.reset(new vg::GAMIndex());
+        gam_index->load(gam_index_file);
+        if (progress) {
+            cerr << "[vg2maf]: Loaded GAM index" << endl;
+        }
+    }
+
     // iterate the top-level chains
     distance_index.for_each_child(distance_index.get_root(), [&](net_handle_t net_handle) {
         if (distance_index.is_chain(net_handle)) {
-            convert_chain(*graph, distance_index, net_handle, ref_path);
+            convert_chain(*graph, distance_index, gam_index.get(), net_handle, ref_path_prefix);
         }        
     });
 
     return 0;
 }
 
-void convert_node(PathPositionHandleGraph& graph, handle_t handle, path_handle_t ref_path_handle, LW* output) {
+void convert_node(PathPositionHandleGraph& graph, vg::GAMIndex* gam_index, handle_t handle, path_handle_t ref_path_handle, LW* output) {
 
     vector<step_handle_t> steps = graph.steps_of_handle(handle);
     if (steps.empty()) {
@@ -203,8 +227,8 @@ void convert_node(PathPositionHandleGraph& graph, handle_t handle, path_handle_t
     alignment_destruct(alignment, true);
 }
 
-void convert_snarl(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_index, net_handle_t snarl,
-                   path_handle_t ref_path_handle, LW* output) {
+void convert_snarl(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_index, vg::GAMIndex* gam_index,
+                   net_handle_t snarl, path_handle_t ref_path_handle, LW* output) {
 
     net_handle_t start_bound = distance_index.get_bound(snarl, false, true);
     net_handle_t end_bound = distance_index.get_bound(snarl, true, false);
@@ -226,7 +250,7 @@ void convert_snarl(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_
         handle_t handle = bfs_queue.front();
         bfs_queue.pop_front();
         if (!visited.count(handle)) {
-            convert_node(graph,  handle, ref_path_handle, output);
+            convert_node(graph, gam_index, handle, ref_path_handle, output);
             visited.insert(handle);
             graph.follow_edges(handle, false, [&](handle_t other_handle) {
                 bfs_queue.push_back(other_handle);
@@ -238,7 +262,8 @@ void convert_snarl(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_
     }
 }
 
-void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_index, net_handle_t chain, const string& ref_path) {
+void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_index, vg::GAMIndex* gam_index,
+                   net_handle_t chain, const string& ref_path) {
 
     net_handle_t start_bound = distance_index.get_bound(chain, false, true);
     net_handle_t end_bound = distance_index.get_bound(chain, true, false);
@@ -301,9 +326,9 @@ void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_
     // convert the chain, one node/snarl at a time
     distance_index.for_each_child(chain, [&](net_handle_t net_handle) {
         if (distance_index.is_node(net_handle)) {            
-            convert_node(graph, distance_index.get_handle(net_handle, &graph), ref_path_handle, output);
+            convert_node(graph, gam_index, distance_index.get_handle(net_handle, &graph), ref_path_handle, output);
         } else if (distance_index.is_snarl(net_handle)) {
-            convert_snarl(graph, distance_index, net_handle, ref_path_handle, output);
+            convert_snarl(graph, distance_index, gam_index, net_handle, ref_path_handle, output);
         } else if (distance_index.is_chain(net_handle)) {
             cerr << "TODO: CHILD CHAIN" << endl;
         } else {

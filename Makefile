@@ -31,8 +31,14 @@ clean :
 	cd deps/taffy && make clean
 	cd deps/libvgio && make clean
 
-vg2maf.o : vg2maf.cpp 
+vg2maf.o : vg2maf.cpp stream_index.hpp scanner.hpp
 	${CXX} ${CXXFLAGS} -I . vg2maf.cpp -c
+
+scanner.o : scanner.cpp scanner.hpp deps/libvgio/build/libvgio.a
+	${CXX} ${CXXFLAGS} -I . scanner.cpp -c
+
+stream_index.o : stream_index.cpp stream_index.hpp deps/libvgio/build/libvgio.a
+	${CXX} ${CXXFLAGS} -I . stream_index.cpp -c
 
 deps/taffy/lib/libstTaf.a:
 	cd deps/taffy && ${MAKE}
@@ -41,10 +47,10 @@ ${libbdsgPath}/lib/libbdsg.a:
 	cd deps/libbdsg-easy && ${MAKE}
 
 deps/libvgio/build/libvgio.a:
-	cd deps/libvgio && rm -rf build && mkdir build && cd build && cmake .. && ${MAKE}
+	cd deps/libvgio && rm -rf build && mkdir build && cd build && cmake .. && ${MAKE} && cp vg.pb.h ../include/vg
 
-vg2maf : vg2maf.o deps/taffy/lib/libstTaf.a ${libbdsgPath}/lib/libbdsg.a deps/libvgio/build/libvgio.a
-	${CXX} ${CXXFLAGS} -lm -lz -llzma -lbz2 -ldeflate -fopenmp -pthread vg2maf.o deps/taffy/lib/libstTaf.a deps/taffy/lib/libsonLib.a ${libbdsgLibs} -ljansson deps/libvgio/build/libvgio.a -lprotobuf -lhts -o vg2maf
+vg2maf : vg2maf.o scanner.o stream_index.o deps/taffy/lib/libstTaf.a ${libbdsgPath}/lib/libbdsg.a deps/libvgio/build/libvgio.a
+	${CXX} ${CXXFLAGS} -lm -lz -llzma -lbz2 -ldeflate -fopenmp -pthread vg2maf.o stream_index.o scanner.o deps/taffy/lib/libstTaf.a deps/taffy/lib/libsonLib.a ${libbdsgLibs} -ljansson deps/libvgio/build/libvgio.a -lprotobuf -lhts -o vg2maf
 
 #test :
 #	make
