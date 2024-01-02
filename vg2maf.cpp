@@ -7,9 +7,6 @@
 #include <unistd.h>
 #include <getopt.h>
 
-
-using namespace std;
-
 #include "handlegraph/path_handle_graph.hpp"
 #include "bdsg/packed_graph.hpp"
 #include "bdsg/hash_graph.hpp"
@@ -22,9 +19,13 @@ extern "C" {
 #include "sonLib.h"
 }
 
+#define debug
+
 using namespace std;
 using namespace handlegraph;
 using namespace bdsg;
+
+
 
 // from hal2vg/clip-vg.cpp
 static unique_ptr<PathHandleGraph> load_graph(istream& graph_stream);
@@ -35,6 +36,8 @@ struct GAMInfo {
     vg::GAMIndex::cursor_t cursor;
 };
 
+static unordered_map<int64_t, unordered_map<int64_t, string>> get_insertion_index(const vector<vg::Mapping>& mappings);
+static unordered_map<int64_t, unordered_map<int64_t, string>> align_insertion_index(const unordered_map<int64_t, unordered_map<int64_t, string>>& in_idx);
 static void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t handle,
                          path_handle_t ref_path_handle, LW* output);
 static void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_index, GAMInfo* gam_info,
@@ -174,6 +177,78 @@ int main(int argc, char** argv) {
     return 0;
 }
 
+unordered_map<int64_t, unordered_map<int64_t, string>> get_insertion_index(const vector<vg::Mapping>& mappings) {
+
+    unordered_map<int64_t, unordered_map<int64_t, string>>idx;
+        
+    for (int64_t row = 0; row < mappings.size(); ++row) {
+        const vg::Mapping& mapping = mappings.at(row);
+        int64_t offset = mapping.position().offset();
+        for (int64_t i = 0; i < mapping.edit_size(); ++i) {
+            const vg::Edit& edit = mapping.edit(i);
+            if (edit.from_length() < edit.to_length()) {
+                if (mapping.position().is_reverse()) {
+                    cerr << "skipping backward mapping for insertion index!" << endl;
+                    continue;
+                }
+                // note: offsetting on from_length, since we only want to include the "Dangling" inserted bit
+                idx[offset + edit.from_length()][row] =  edit.sequence().substr(edit.from_length());   
+            }                        
+            offset += edit.from_length();
+        }        
+    }
+
+    return idx;
+}
+
+unordered_map<int64_t, unordered_map<int64_t, string>> align_insertion_index(const unordered_map<int64_t, unordered_map<int64_t, string>>& in_idx) {
+
+    // todo: replace this with abPOA.
+    // for now, we just leave all insertions unaligned.
+    // note: that taffy norm will *not* realign insertions in the middle of blocks.
+    //       could explore chopping (instead of abPOA) but it kind of sounds like more hassle right now
+
+    unordered_map<int64_t, unordered_map<int64_t, string>> out_idx;
+        
+    for (const pair<int64_t, unordered_map<int64_t, string>>& in_elem : in_idx) {
+        const unordered_map<int64_t, string>& in_map = in_elem.second;
+        unordered_map<int64_t, string>& out_map = out_idx[in_elem.first];
+        int64_t width = 0;
+        // compute the number of columns (just sum of all lengths since we're not aligning)
+        for (const auto& ie : in_map) {
+            width += ie.second.length();
+        }
+        // allocate the output alignment rows
+        for (const auto& ie : in_map) {
+            out_map[ie.first].resize(width);
+        }
+        // write the unaligned output alignment
+        int64_t cur_row = 0;
+        int64_t cur_offset = 0;
+        // do it column by column
+        for (int64_t col = 0; col < width; ++col) {
+            for (const auto& ie : in_map) {
+                int64_t i_row = ie.first;
+                // write the sequence for each row
+                if (cur_row == i_row) {
+                    out_map[cur_row][col] = ie.second[cur_offset];
+                    ++cur_offset;
+                    if (cur_offset == ie.second.length()) {
+                        cur_offset = 0;
+                        ++cur_row;
+                    }
+                } else {
+                    // and the rest is unaligned
+                    out_map[cur_row][col] = '-';
+                }
+            }            
+        }
+        assert(cur_offset == 0 && cur_row == in_elem.second.size());
+    }
+
+    return out_idx;
+}
+
 void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t handle, path_handle_t ref_path_handle, LW* output) {
 
     vector<step_handle_t> steps = graph.steps_of_handle(handle);
@@ -185,19 +260,149 @@ void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t ha
     Alignment* alignment = (Alignment*)st_calloc(1, sizeof(Alignment));
     alignment->row_number = steps.size();
     alignment->column_number = graph.get_length(handle);
-    alignment->column_tags = (Tag**)st_calloc(alignment->column_number, sizeof(Tag*));
 
     // convert each step to row
     vector<Alignment_Row*> rows;
 
+    // index for stitching in insertion alignments, which require extra columns to be inserted
+    // this is a basically 
+    unordered_map<int64_t, unordered_map<int64_t, string>> ins_alignments;
+
+    nid_t node_id = graph.get_id(handle);
+    string node_sequence = graph.get_sequence(handle);
+
     // convert the gam indxes to rows
     if (gam_info) {
-        // todo: update col number to reflect insertions
-        //       add some kind of map of insertion breakpoints that can be used to add gaps
-        gam_info->index.find(gam_info->cursor, graph.get_id(handle), [&](const vg::Alignment& aln) {
-            cerr << "found read hey!" << endl;
+        // query the index for our node [todo: is this too simplisitic due to repeated queries?]
+        vector<vg::Mapping> mappings;
+        vector<string> names;
+        vector<int64_t> start_positions;
+        vector<int64_t> sequence_lengths;
+#ifdef debug
+        cerr << "doing gam index query on node " << node_id << endl;
+#endif
+        gam_info->index.find(gam_info->cursor, node_id, [&](const vg::Alignment& aln) {
+            // this is the position w.r.t the read alignment
+            int64_t pos = 0;
+            for (int64_t i = 0; i < aln.path().mapping_size(); ++i) {
+                const vg::Mapping mapping = aln.path().mapping(i);
+                if (mapping.position().node_id() == node_id) {
+                    mappings.push_back(mapping);
+                    string name = aln.name();
+                    if (name.empty()) {
+                        name = "aln"; 
+                    }
+                    cerr << "pushing mapping with name " << name << endl;
+                    names.push_back(name);
+                    start_positions.push_back(pos);
+                }
+                for (int64_t j = 0; j < mapping.edit_size(); ++j) {
+                    pos += mapping.edit(j).to_length();
+                }
+            }
+            int64_t n_mappings = mappings.size() - sequence_lengths.size();
+            // manually count it up, to support case where sequence string not in alignment (gaf?)
+            for (int64_t i = 0; i < n_mappings; ++i) {
+                sequence_lengths.push_back(pos);
+            }
         });
+
+        // collect all the inserted sequences, indexed by column
+        auto ins_idx = get_insertion_index(mappings);
+
+        // make a dummy alignment [todo: switch to actual alignment]
+        ins_alignments = align_insertion_index(ins_idx);
+
+        // add enough alignment columns for all insertions
+        for (const auto& elem : ins_alignments) {
+            alignment->column_number += elem.second.begin()->second.length();
+        }
+
+#ifdef debug
+        if (mappings.size() > 0) {
+            cerr << "adding " << mappings.size() << " mappings for node " << node_id << endl;
+        }
+#endif
+
+        // copy our mappings into the alignment rows
+        for (int64_t i = 0; i < mappings.size(); ++i) {
+            vg::Mapping& mapping = mappings[i];
+            Alignment_Row* row = (Alignment_Row*)st_calloc(1, sizeof(Alignment_Row));
+            row->sequence_name = stString_copy(names[i].c_str());
+            row->length = 0;
+            row->sequence_length = sequence_lengths[i];
+            row->start = start_positions[i];
+            row->strand = mapping.position().is_reverse() ? 0 : 1;
+            row->bases = (char*)st_calloc(alignment->column_number, sizeof(char));
+            // add the opening gaps
+            int64_t col = 0;
+            int64_t node_offset = 0;
+            cerr << "\nfam " << i << " with edit size " << mappings[i].edit_size() << endl;
+            for (; col < mappings[i].position().offset(); ++col) {
+                row->bases[col] = '-';
+                cerr << "add \'" << '-' << "\'" << endl;
+            }
+            node_offset = col;
+            // add in the sequence
+            for (int64_t j = 0; j < mappings[i].edit_size(); ++j) {
+                const vg::Edit& edit = mappings[i].edit(j);
+                if (edit.from_length() == edit.to_length()) {
+                    //match
+                    for (int64_t k = 0; k < edit.from_length(); ++k) {
+                        if (!edit.sequence().empty()) {
+                            row->bases[col] = edit.sequence()[k];                            
+                            cerr << "m-add \'" << edit.sequence()[k] << "\'" << " k=" << k <<  " s=" << edit.sequence() << endl;
+                        } else {
+                            cerr << "M-add \'" << node_sequence[node_offset] << endl;
+                            row->bases[col] = node_sequence[node_offset];
+                        }
+                        ++col;
+                        ++node_offset;
+                        ++row->length;
+                    }
+                } else if (edit.to_length() == 0 && edit.from_length() > 0) {
+                    // delete
+                    for (int64_t k = 0; k < edit.from_length(); ++k) {
+                        row->bases[col++] = '-';
+                        ++node_offset;
+                        cerr << "d-add \'" << '-' << "\'" << endl;
+                    }
+                    
+                } else {
+                    // insert
+                    assert(edit.from_length() < edit.to_length());
+                    // add the common part [todo: this should probably not be aligned automaticall going forward]
+                    for (int64_t k = 0; k < edit.from_length(); ++k) {
+                        row->bases[col++] = edit.sequence()[k];
+                        ++node_offset;
+                        ++row->length;
+                    }
+                    // look up the insertion from the index
+                    const unordered_map<int64_t, string>& row_alignments = ins_alignments.at(col);
+                    // find the row
+                    const string& row_string = row_alignments.at(i);
+                    for (int64_t k = 0; k < row_string.length(); ++k) {
+                        row->bases[col++] = row_string[k];
+                        if (row_string[k] != '-') {
+                            ++row->length;
+                        }
+                    }
+                }
+            }
+
+            // add the closing gaps
+            for (int64_t j = node_offset; j < node_sequence.length(); ++j) {
+                row->bases[j] = '-';
+                cerr << "C-add \'" << '-' << "\'" << endl;
+            }
+
+            rows.push_back(row);
+        }
     }
+
+#ifdef debug
+    cerr << "alignment rows after adding mappings: " << rows.size() << endl;
+#endif
 
     // todo: apply gap index
     for (step_handle_t& step_handle : steps) {
@@ -212,10 +417,13 @@ void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t ha
         if (row->strand == 0) {
             row->start += row->length - 1;
         }
-        row->bases = stString_copy(graph.get_sequence(handle).c_str());
+        row->bases = stString_copy(node_sequence.c_str());
         rows.push_back(row);
     }
 
+#ifdef debug
+    cerr << "alignment rows after adding paths: " << rows.size() << endl;
+#endif
 
     // sort the rows
     std::sort(rows.begin(), rows.end(), [&](const Alignment_Row* row1, const Alignment_Row* row2) {
@@ -237,11 +445,15 @@ void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t ha
     for (Alignment_Row* row : rows) {
         if (cur_row == NULL) {
             alignment->row = row;
+            cur_row = row;
         } else if (row != alignment->row) {
             cur_row->n_row = row;
+            cur_row = row;            
         }
-        cur_row = row;
     }
+
+    // allocate the tags array which as it's required my taf
+    alignment->column_tags = (Tag**)st_calloc(alignment->column_number, sizeof(Tag*));
 
     // write the alignment    
     maf_write_block(alignment, output);
@@ -258,8 +470,10 @@ void convert_snarl(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_
     handle_t start_handle = distance_index.get_handle(start_bound, &graph);
     handle_t end_handle = distance_index.get_handle(end_bound, &graph);
 
+#ifdef debug
     cerr << "snarl goes from " << graph.get_id(start_handle) << ":" << graph.get_is_reverse(start_handle) << " to "
          << graph.get_id(end_handle) << ":" << graph.get_is_reverse(end_handle) << endl;
+#endif
 
     // use start-to-end bfs search to order the blocks
     deque<handle_t> bfs_queue;
@@ -293,8 +507,10 @@ void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_
     handle_t start_handle = distance_index.get_handle(start_bound, &graph);
     handle_t end_handle = distance_index.get_handle(end_bound, &graph);
 
+#ifdef debug
     cerr << "chain goes from " << graph.get_id(start_handle) << ":" << graph.get_is_reverse(start_handle) << " to "
          << graph.get_id(end_handle) << ":" << graph.get_is_reverse(end_handle) << endl;
+#endif
 
     set<pair<path_handle_t, bool>> start_ref_paths;
     set<pair<path_handle_t, bool>> end_ref_paths;
