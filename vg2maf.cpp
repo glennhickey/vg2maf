@@ -46,7 +46,7 @@ static void convert_snarl(PathPositionHandleGraph& graph, SnarlDistanceIndex& di
                           net_handle_t snarl, path_handle_t ref_path_handle, LW* output);
 
 void help(char** argv) {
-  cerr << "usage: " << argv[0] << " [options] <graph> <distance-index>" << endl
+  cerr << "usage: " << argv[0] << " [options] <graph> " << endl
        << "Chop out path intervals from a vg graph" << endl
        << endl
        << "options: " << endl
@@ -147,9 +147,10 @@ int main(int argc, char** argv) {
     }
 
     unique_ptr<GAMInfo> gam_info;
+    ifstream gam_file;
     if (!gam_filename.empty()) {
         gam_info.reset(new GAMInfo());
-        ifstream gam_file(gam_filename);
+        gam_file.open(gam_filename);
         if (!gam_file) {
             cerr << "[vg2maf] error: Unable to open gam file " << gam_filename << endl;
             return 1;
@@ -270,6 +271,7 @@ void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t ha
 
     nid_t node_id = graph.get_id(handle);
     string node_sequence = graph.get_sequence(handle);
+    string node_sequence_rev = graph.get_sequence(graph.flip(handle));
 
     // convert the gam indxes to rows
     if (gam_info) {
@@ -413,11 +415,13 @@ void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t ha
         row->length = alignment->column_number;
         row->sequence_length = graph.get_path_length(step_path_handle);
         // todo: check this strand logic
-        row->strand = graph.get_is_reverse(handle) == graph.get_is_reverse(graph.get_handle_of_step(step_handle));
+        handle_t handle_of_step = graph.get_handle_of_step(step_handle);
+        row->strand = graph.get_is_reverse(handle_of_step) ? 0 : 1;
         if (row->strand == 0) {
             row->start += row->length - 1;
         }
-        row->bases = stString_copy(node_sequence.c_str());
+        row->bases = stString_copy(graph.get_is_reverse(handle_of_step) == graph.get_is_reverse(handle) ? node_sequence.c_str() :
+                                   node_sequence_rev.c_str());
         rows.push_back(row);
     }
 
