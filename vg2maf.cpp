@@ -417,11 +417,12 @@ void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t ha
         // todo: check this strand logic
         handle_t handle_of_step = graph.get_handle_of_step(step_handle);
         row->strand = graph.get_is_reverse(handle_of_step) ? 0 : 1;
+        bool flipped = graph.get_is_reverse(handle_of_step) != graph.get_is_reverse(handle);
         if (row->strand == 0) {
             row->start += row->length - 1;
+            flipped = !flipped;
         }
-        row->bases = stString_copy(graph.get_is_reverse(handle_of_step) == graph.get_is_reverse(handle) ? node_sequence.c_str() :
-                                   node_sequence_rev.c_str());
+        row->bases = stString_copy(flipped ? node_sequence_rev.c_str() : node_sequence.c_str());
         rows.push_back(row);
     }
 
