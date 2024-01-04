@@ -161,6 +161,85 @@ class Vg2mafTest(unittest.TestCase):
 
         self.assertEqual(['s', 'x', '0', '8', '+', '50', 'CAAATAAG'], lines_by_offset[0][0])
         self.assertEqual(['s', 'snp', '0', '4', '+', '4', '--AAGA--'],lines_by_offset[0][1])
+
+    def test_deletion_forward(self):
+        """ test a single forward strand deletion """
+        # Manually make this alignment
+        # x CAAATAAG
+        # y -AA--A--
+        snp_gam_json_name = 'del.gam.json'
+        with open(snp_gam_json_name, 'w') as snp_gam_json_file:
+            snp_gam_json_file.write('{"name": "del", "path": {"mapping": [{"position": {"node_id": "1", "offset": "1"}, "edit": [{"from_length": 2, "to_length": 2}, {"from_length": 2, "to_length": 0}, {"from_length": 1, "to_length": 1}]}]}, "sequence": "AAA"}\n')
+        # convert to gam and index it
+        snp_gam_name = 'del.gam'
+        with open(snp_gam_name, 'w') as snp_gam_file:
+            subprocess.check_call(['vg', 'view', '-JaG', snp_gam_json_name], stdout=snp_gam_file)
+        subprocess.check_call(['vg', 'gamsort', snp_gam_name, '-i', snp_gam_name + '.gai'], stdout=subprocess.DEVNULL)
+
+        # convert vg+gam to maf
+        subprocess.check_call(['vg', 'index', self.tiny_vg, '-j', 'tiny.dist'])
+        out_maf_name = 'del.maf'
+        with open(out_maf_name, 'w') as out_maf_file:
+            subprocess.check_call(['vg2maf', self.tiny_vg, '-d', 'tiny.dist', '-r', 'x', '-g', snp_gam_name], stdout=out_maf_file)
+
+        lines_by_offset = {}
+        with open(out_maf_name, 'r') as out_maf_file:
+            for line in out_maf_file:
+                if line.startswith('s'):
+                    toks = line.rstrip().split()
+                    offset = int(toks[2])
+                    if offset not in lines_by_offset:
+                        lines_by_offset[offset] = []
+                    lines_by_offset[offset].append(toks)
+
+        # there are 10 nodes in the graph
+        self.assertEqual(len(lines_by_offset), 10)
+
+        # there should be 2 lines for node 1
+        self.assertEqual(len(lines_by_offset[0]), 2)
+
+        self.assertEqual(['s', 'x', '0', '8', '+', '50', 'CAAATAAG'], lines_by_offset[0][0])
+        self.assertEqual(['s', 'del', '0', '3', '+', '3', '-AA--A--'],lines_by_offset[0][1])
+
+    def test_insertion_forward(self):
+        """ test a single forward strand insertion """
+        # Manually make this alignment
+        # x CAAA---TAAG
+        # y CAAGGGATAAG
+        snp_gam_json_name = 'ins.gam.json'
+        with open(snp_gam_json_name, 'w') as snp_gam_json_file:
+            snp_gam_json_file.write('{"name": "ins", "path": {"mapping": [{"position": {"node_id": "1", "offset": "0"}, "edit": [{"from_length": 3, "to_length": 3}, {"from_length": 0, "to_length": 3, "sequence": "GGG"}, {"from_length": 5, "to_length": 5}]}]}, "sequence": "CAAGGGATAAG"}\n')
+        # convert to gam and index it
+        snp_gam_name = 'ins.gam'
+        with open(snp_gam_name, 'w') as snp_gam_file:
+            subprocess.check_call(['vg', 'view', '-JaG', snp_gam_json_name], stdout=snp_gam_file)
+        subprocess.check_call(['vg', 'gamsort', snp_gam_name, '-i', snp_gam_name + '.gai'], stdout=subprocess.DEVNULL)
+
+        # convert vg+gam to maf
+        subprocess.check_call(['vg', 'index', self.tiny_vg, '-j', 'tiny.dist'])
+        out_maf_name = 'ins.maf'
+        with open(out_maf_name, 'w') as out_maf_file:
+            subprocess.check_call(['vg2maf', self.tiny_vg, '-d', 'tiny.dist', '-r', 'x', '-g', snp_gam_name], stdout=out_maf_file)
+
+        lines_by_offset = {}
+        with open(out_maf_name, 'r') as out_maf_file:
+            for line in out_maf_file:
+                if line.startswith('s'):
+                    toks = line.rstrip().split()
+                    offset = int(toks[2])
+                    if offset not in lines_by_offset:
+                        lines_by_offset[offset] = []
+                    lines_by_offset[offset].append(toks)
+
+        # there are 10 nodes in the graph
+        self.assertEqual(len(lines_by_offset), 10)
+
+        # there should be 2 lines for node 1
+        self.assertEqual(len(lines_by_offset[0]), 2)
+
+        self.assertEqual(['s', 'x', '0', '8', '+', '50', 'CAAA---TAAG'], lines_by_offset[0][0])
+        self.assertEqual(['s', 'ins', '0', '11', '+', '11', 'CAAGGGATAAG'],lines_by_offset[0][1])
+        
         
 
 if __name__ == '__main__':

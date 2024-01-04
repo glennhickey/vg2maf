@@ -408,13 +408,12 @@ void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t ha
     cerr << "alignment rows after adding mappings: " << rows.size() << endl;
 #endif
 
-    // todo: apply gap index
     for (step_handle_t& step_handle : steps) {
         Alignment_Row* row = (Alignment_Row*)st_calloc(1, sizeof(Alignment_Row));
         path_handle_t step_path_handle = graph.get_path_handle_of_step(step_handle);
         row->sequence_name = stString_copy(graph.get_path_name(step_path_handle).c_str());
         row->start = graph.get_position_of_step(step_handle);
-        row->length = alignment->column_number;
+        row->length = node_sequence.length();
         row->sequence_length = graph.get_path_length(step_path_handle);
         // todo: check this strand logic
         handle_t handle_of_step = graph.get_handle_of_step(step_handle);
@@ -424,7 +423,28 @@ void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t ha
             row->start += row->length - 1;
             flipped = !flipped;
         }
-        row->bases = stString_copy(flipped ? node_sequence_rev.c_str() : node_sequence.c_str());
+        int64_t gaps = 0;
+        for (const pair<int64_t, unordered_map<int64_t, string>>& ie : ins_alignments) {
+            gaps += ie.second.begin()->second.length();
+        }
+        row->bases = (char*)st_calloc(node_sequence.length() + gaps + 1, sizeof(char));
+        // calloc should do this but just in case
+        row->bases[node_sequence.length() + gaps] = '\0';
+        const string& node_seq_oriented = flipped ? node_sequence_rev : node_sequence;
+        int64_t maf_col = 0;
+        // copy the node sequence in base by base
+        for (int64_t col = 0; col < node_sequence.length(); ++col) {
+            row->bases[maf_col++] = node_seq_oriented[col];
+            // add insertion gaps if the column is in the insertion index
+            if (ins_alignments.count(col)) {
+                int64_t gaps = ins_alignments[col].begin()->second.length();
+                for (int64_t k = 0; k < gaps; ++k) {
+                    row->bases[maf_col++] = '-';
+                }
+                
+            }
+        }
+        assert(maf_col == row->length + gaps);
         rows.push_back(row);
     }
 
