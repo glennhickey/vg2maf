@@ -336,6 +336,8 @@ void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t ha
             row->start = start_positions[i];
             row->strand = mapping.position().is_reverse() ? 0 : 1;
             row->bases = (char*)st_calloc(alignment->column_number, sizeof(char));
+            bool flipped = mapping.position().is_reverse() != graph.get_is_reverse(handle);
+            const string& node_seq_oriented = flipped ? node_sequence_rev : node_sequence;
             // add the opening gaps
             int64_t col = 0;
             int64_t node_offset = 0;
@@ -355,8 +357,8 @@ void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t ha
                             row->bases[col] = edit.sequence()[k];                            
                             cerr << "m-add \'" << edit.sequence()[k] << "\'" << " k=" << k <<  " s=" << edit.sequence() << endl;
                         } else {
-                            cerr << "M-add \'" << node_sequence[node_offset] << endl;
-                            row->bases[col] = node_sequence[node_offset];
+                            cerr << "M-add \'" << node_seq_oriented[node_offset] << " offset=" << node_offset << endl;
+                            row->bases[col] = node_seq_oriented[node_offset];
                         }
                         ++col;
                         ++node_offset;

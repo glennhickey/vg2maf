@@ -123,7 +123,44 @@ class Vg2mafTest(unittest.TestCase):
         for path_name, path_seq in vg_paths.items():
             self.assertEqual(maf_paths[path_name], path_seq)
 
+    def test_snp_forward(self):
+        """ test a single forward strand snp """
+        # Manually make this alignment
+        # x CAAATAAG
+        # y --AAGA--
+        snp_gam_json_name = 'snp.gam.json'
+        with open(snp_gam_json_name, 'w') as snp_gam_json_file:
+            snp_gam_json_file.write('{"name": "snp", "path": {"mapping": [{"position": {"node_id": "1", "offset": "2"}, "edit": [{"from_length": 2, "to_length": 2}, {"from_length": 1, "to_length": 1, "sequence": "G"}, {"from_length": 1, "to_length": 1}]}]}, "sequence": "AAGA"}\n')
+        # convert to gam and index it
+        snp_gam_name = 'snp.gam'
+        with open(snp_gam_name, 'w') as snp_gam_file:
+            subprocess.check_call(['vg', 'view', '-JaG', snp_gam_json_name], stdout=snp_gam_file)
+        subprocess.check_call(['vg', 'gamsort', snp_gam_name, '-i', snp_gam_name + '.gai'], stdout=subprocess.DEVNULL)
 
+        # convert vg+gam to maf
+        subprocess.check_call(['vg', 'index', self.tiny_vg, '-j', 'tiny.dist'])
+        out_maf_name = 'snp.maf'
+        with open(out_maf_name, 'w') as out_maf_file:
+            subprocess.check_call(['vg2maf', self.tiny_vg, '-d', 'tiny.dist', '-r', 'x', '-g', snp_gam_name], stdout=out_maf_file)
+
+        lines_by_offset = {}
+        with open(out_maf_name, 'r') as out_maf_file:
+            for line in out_maf_file:
+                if line.startswith('s'):
+                    toks = line.rstrip().split()
+                    offset = int(toks[2])
+                    if offset not in lines_by_offset:
+                        lines_by_offset[offset] = []
+                    lines_by_offset[offset].append(toks)
+
+        # there are 10 nodes in the graph
+        self.assertEqual(len(lines_by_offset), 10)
+
+        # there should be 2 lines for node 1
+        self.assertEqual(len(lines_by_offset[0]), 2)
+
+        self.assertEqual(['s', 'x', '0', '8', '+', '50', 'CAAATAAG'], lines_by_offset[0][0])
+        self.assertEqual(['s', 'snp', '0', '4', '+', '4', '--AAGA--'],lines_by_offset[0][1])
         
 
 if __name__ == '__main__':
