@@ -228,11 +228,13 @@ unordered_map<int64_t, unordered_map<int64_t, string>> align_insertion_index(con
         int64_t cur_offset = 0;
         // do it column by column
         for (int64_t col = 0; col < width; ++col) {
+            cerr << "column " << col << endl;
             for (const auto& ie : in_map) {
                 int64_t i_row = ie.first;
                 // write the sequence for each row
                 if (cur_row == i_row) {
-                    out_map[cur_row][col] = ie.second[cur_offset];
+                    out_map[i_row][col] = ie.second[cur_offset];
+                    cerr << "row " << cur_row << " to " << out_map[i_row][col] << endl;
                     ++cur_offset;
                     if (cur_offset == ie.second.length()) {
                         cur_offset = 0;
@@ -240,13 +242,21 @@ unordered_map<int64_t, unordered_map<int64_t, string>> align_insertion_index(con
                     }
                 } else {
                     // and the rest is unaligned
-                    out_map[cur_row][col] = '-';
+                    out_map[i_row][col] = '-';
+                    cerr << "row " << cur_row << " to " << out_map[i_row][col] << endl;
                 }
             }            
         }
         assert(cur_offset == 0 && cur_row == in_elem.second.size());
     }
 
+    for (const auto xx : out_idx) {
+        cerr << "out col " << xx.first;
+        for (auto yy : xx.second) {
+            cerr << "out row " << yy.first << "->" << yy.second << "<-" << endl;
+        }
+    }
+    
     return out_idx;
 }
 
@@ -286,6 +296,7 @@ void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t ha
         gam_info->index.find(gam_info->cursor, node_id, [&](const vg::Alignment& aln) {
             // this is the position w.r.t the read alignment
             int64_t pos = 0;
+            cerr << "yam balls" << endl;
             for (int64_t i = 0; i < aln.path().mapping_size(); ++i) {
                 const vg::Mapping mapping = aln.path().mapping(i);
                 if (mapping.position().node_id() == node_id) {
@@ -300,11 +311,16 @@ void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t ha
                 }
                 for (int64_t j = 0; j < mapping.edit_size(); ++j) {
                     pos += mapping.edit(j).to_length();
+                    cerr << " pos += " << mapping.edit(j).to_length() << " = " << pos << endl;
                 }
             }
             int64_t n_mappings = mappings.size() - sequence_lengths.size();
             // manually count it up, to support case where sequence string not in alignment (gaf?)
             for (int64_t i = 0; i < n_mappings; ++i) {
+                cerr << "pushing sequence length " << pos << endl;
+                if (!aln.sequence().empty()) {
+                    //assert(aln.sequence().length() == pos);
+                }
                 sequence_lengths.push_back(pos);
             }
         });
@@ -377,6 +393,7 @@ void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t ha
                     assert(edit.from_length() < edit.to_length());
                     // add the common part [todo: this should probably not be aligned automaticall going forward]
                     for (int64_t k = 0; k < edit.from_length(); ++k) {
+                        cerr << "adding ocmmon insertion base " << edit.sequence()[k] << " to col " << col << endl;
                         row->bases[col++] = edit.sequence()[k];
                         ++node_offset;
                         ++row->length;
@@ -385,8 +402,10 @@ void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t ha
                     const unordered_map<int64_t, string>& row_alignments = ins_alignments.at(col);
                     // find the row
                     const string& row_string = row_alignments.at(i);
+                    cerr << "found row string ->" << row_string << "<- it has length " << row_string.length() << endl; 
                     for (int64_t k = 0; k < row_string.length(); ++k) {
                         row->bases[col++] = row_string[k];
+                        cerr << "adding row string k=" << k << " base=" << row_string[k] << endl;
                         if (row_string[k] != '-') {
                             ++row->length;
                         }
@@ -434,17 +453,18 @@ void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t ha
         int64_t maf_col = 0;
         // copy the node sequence in base by base
         for (int64_t col = 0; col < node_sequence.length(); ++col) {
-            row->bases[maf_col++] = node_seq_oriented[col];
             // add insertion gaps if the column is in the insertion index
             if (ins_alignments.count(col)) {
+                cerr << "adding insertions for column " << col << endl;
                 int64_t gaps = ins_alignments[col].begin()->second.length();
                 for (int64_t k = 0; k < gaps; ++k) {
                     row->bases[maf_col++] = '-';
                 }
                 
             }
+            row->bases[maf_col++] = node_seq_oriented[col];
         }
-        assert(maf_col == row->length + gaps);
+        assert(maf_col == alignment->column_number);
         rows.push_back(row);
     }
 

@@ -204,7 +204,7 @@ class Vg2mafTest(unittest.TestCase):
     def test_insertion_forward(self):
         """ test a single forward strand insertion """
         # Manually make this alignment
-        # x CAAA---TAAG
+        # x CAA---ATAAG
         # y CAAGGGATAAG
         snp_gam_json_name = 'ins.gam.json'
         with open(snp_gam_json_name, 'w') as snp_gam_json_file:
@@ -237,8 +237,55 @@ class Vg2mafTest(unittest.TestCase):
         # there should be 2 lines for node 1
         self.assertEqual(len(lines_by_offset[0]), 2)
 
-        self.assertEqual(['s', 'x', '0', '8', '+', '50', 'CAAA---TAAG'], lines_by_offset[0][0])
+        self.assertEqual(['s', 'x', '0', '8', '+', '50', 'CAA---ATAAG'], lines_by_offset[0][0])
         self.assertEqual(['s', 'ins', '0', '11', '+', '11', 'CAAGGGATAAG'],lines_by_offset[0][1])
+
+
+    def test_multi_insertion_forward(self):
+        """ test a triple forward strand insertion """
+        # Manually make this alignment (ie all insertions unaligned)
+        # x CAA--------ATAAG
+        # y CAAGGG-----ATAAG
+        # y CAA---CC---ATAAG
+        # y CAA-----GGGATAAG        
+        snp_gam_json_name = 'ins3.gam.json'
+        with open(snp_gam_json_name, 'w') as snp_gam_json_file:
+            snp_gam_json_file.write('{"name": "ins1", "path": {"mapping": [{"position": {"node_id": "1", "offset": "0"}, "edit": [{"from_length": 3, "to_length": 3}, {"from_length": 0, "to_length": 3, "sequence": "GGG"}, {"from_length": 5, "to_length": 5}]}]}, "sequence": "CAAAGGGTAAG"}\n')
+            snp_gam_json_file.write('{"name": "ins2", "path": {"mapping": [{"position": {"node_id": "1", "offset": "0"}, "edit": [{"from_length": 3, "to_length": 3}, {"from_length": 0, "to_length": 2, "sequence": "CC"}, {"from_length": 5, "to_length": 5}]}]}, "sequence": "CAAACCTAAG"}\n')
+            snp_gam_json_file.write('{"name": "ins3", "path": {"mapping": [{"position": {"node_id": "1", "offset": "0"}, "edit": [{"from_length": 3, "to_length": 3}, {"from_length": 0, "to_length": 3, "sequence": "GGG"}, {"from_length": 5, "to_length": 5}]}]}, "sequence": "CAAAGGGTAAG"}\n')
+        # convert to gam and index it
+        snp_gam_name = 'ins3.gam'
+        with open(snp_gam_name, 'w') as snp_gam_file:
+            subprocess.check_call(['vg', 'view', '-JaG', snp_gam_json_name], stdout=snp_gam_file)
+        subprocess.check_call(['vg', 'gamsort', snp_gam_name, '-i', snp_gam_name + '.gai'], stdout=subprocess.DEVNULL)
+
+        # convert vg+gam to maf
+        subprocess.check_call(['vg', 'index', self.tiny_vg, '-j', 'tiny.dist'])
+        out_maf_name = 'ins3.maf'
+        with open(out_maf_name, 'w') as out_maf_file:
+            subprocess.check_call(['vg2maf', self.tiny_vg, '-d', 'tiny.dist', '-r', 'x', '-g', snp_gam_name], stdout=out_maf_file)
+
+        lines_by_offset = {}
+        with open(out_maf_name, 'r') as out_maf_file:
+            for line in out_maf_file:
+                if line.startswith('s'):
+                    toks = line.rstrip().split()
+                    offset = int(toks[2])
+                    if offset not in lines_by_offset:
+                        lines_by_offset[offset] = []
+                    lines_by_offset[offset].append(toks)
+
+        # there are 10 nodes in the graph
+        self.assertEqual(len(lines_by_offset), 10)
+
+        # there should be 2 lines for node 1
+        self.assertEqual(len(lines_by_offset[0]), 4)
+
+        self.assertEqual(['s', 'x', '0', '8', '+', '50', 'CAA--------ATAAG'], lines_by_offset[0][0])
+        self.assertEqual(['s', 'ins1', '0', '11', '+', '11', 'CAAGGG-----ATAAG'], lines_by_offset[0][1])
+        self.assertEqual(['s', 'ins2', '0', '10', '+', '10', 'CAA---CC---ATAAG'], lines_by_offset[0][2])
+        self.assertEqual(['s', 'ins3', '0', '11', '+', '11', 'CAA-----GGGATAAG'], lines_by_offset[0][3])
+
         
         
 
