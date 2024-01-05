@@ -36,6 +36,8 @@ struct GAMInfo {
     vg::GAMIndex::cursor_t cursor;
 };
 
+// from vg/src/path.cpp
+static void reverse_complement_mapping_in_place(vg::Mapping* m, const function<int64_t(nid_t)>& node_length);
 static unordered_map<int64_t, unordered_map<int64_t, string>> get_insertion_index(const vector<vg::Mapping>& mappings);
 static unordered_map<int64_t, unordered_map<int64_t, string>> align_insertion_index(const unordered_map<int64_t, unordered_map<int64_t, string>>& in_idx);
 static void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t handle,
@@ -178,6 +180,42 @@ int main(int argc, char** argv) {
     return 0;
 }
 
+// copied from vg/src/path.cpp
+void reverse_complement_mapping_in_place(vg::Mapping* m, const function<int64_t(nid_t)>& node_length) {
+            
+    vg::Position* pos = m->mutable_position();
+    pos->set_is_reverse(!pos->is_reverse());
+    int length = 0;
+    for (const auto& edit : m->edit()) {
+        length += edit.from_length();
+    }
+    pos->set_offset(node_length(pos->node_id()) - pos->offset() - length);
+    
+    size_t swap_size = m->edit_size() / 2;
+    for (size_t i = 0, j = m->edit_size() - 1; i < swap_size; i++, j--) {
+        vg::Edit* e1 = m->mutable_edit(i);
+        vg::Edit* e2 = m->mutable_edit(j);
+        
+        int64_t from_length_tmp = e1->from_length();
+        int64_t to_length_tmp = e1->to_length();
+        string sequence_tmp = e1->sequence();
+        
+        e1->set_from_length(e2->from_length());
+        e1->set_to_length(e2->to_length());
+        e1->set_sequence(reverse_complement(e2->sequence()));
+        
+        e2->set_from_length(from_length_tmp);
+        e2->set_to_length(to_length_tmp);
+        e2->set_sequence(reverse_complement(sequence_tmp));
+    }
+    
+    
+    if (m->edit_size() % 2) {
+        vg::Edit* e = m->mutable_edit(swap_size);
+        reverse_complement_in_place(*e->mutable_sequence());
+    }
+}
+
 unordered_map<int64_t, unordered_map<int64_t, string>> get_insertion_index(const vector<vg::Mapping>& mappings) {
 
     unordered_map<int64_t, unordered_map<int64_t, string>>idx;
@@ -294,17 +332,26 @@ void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t ha
         vector<string> names;
         vector<int64_t> start_positions;
         vector<int64_t> sequence_lengths;
+        vector<bool> mapping_reversed;
 #ifdef debug
         cerr << "doing gam index query on node " << node_id << endl;
 #endif
-        gam_info->index.find(gam_info->cursor, node_id, [&](const vg::Alignment& aln) {
+        gam_info->index.find(gam_info->cursor, node_id, [&](const vg::Alignment& aln) {            
             // this is the position w.r.t the read alignment
             int64_t pos = 0;
             cerr << "yam balls" << endl;
             for (int64_t i = 0; i < aln.path().mapping_size(); ++i) {
-                const vg::Mapping mapping = aln.path().mapping(i);
+                const vg::Mapping& mapping = aln.path().mapping(i);
                 if (mapping.position().node_id() == node_id) {
                     mappings.push_back(mapping);
+                    mapping_reversed.push_back(mapping.position().is_reverse());
+                    // easier just to deal with forward mapping from here down
+                    // we remember it was reversed in the mapping_reversed vector for the strand field
+                    if (mapping.position().is_reverse()) {
+                        reverse_complement_mapping_in_place(&mappings.back(), [&graph](nid_t mnid) {
+                            return graph.get_length(graph.get_handle(mnid));
+                        });
+                    }
                     string name = aln.name();
                     if (name.empty()) {
                         name = "aln"; 
@@ -354,7 +401,7 @@ void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t ha
             row->length = 0;
             row->sequence_length = sequence_lengths[i];
             row->start = start_positions[i];
-            row->strand = mapping.position().is_reverse() ? 0 : 1;
+            row->strand = mapping_reversed[i] ? 0 : 1;
             row->bases = (char*)st_calloc(alignment->column_number, sizeof(char));
             // add the opening gaps
             int64_t col = 0;
