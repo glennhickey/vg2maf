@@ -19,12 +19,11 @@ extern "C" {
 #include "sonLib.h"
 }
 
-#define debug
+//#define debug
 
 using namespace std;
 using namespace handlegraph;
 using namespace bdsg;
-
 
 
 // from hal2vg/clip-vg.cpp
@@ -266,13 +265,11 @@ unordered_map<int64_t, unordered_map<int64_t, string>> align_insertion_index(con
         int64_t cur_offset = 0;
         // do it column by column
         for (int64_t col = 0; col < width; ++col) {
-            cerr << "column " << col << endl;
             for (const auto& ie : in_map) {
                 int64_t i_row = ie.first;
                 // write the sequence for each row
                 if (cur_row == i_row) {
                     out_map[i_row][col] = ie.second[cur_offset];
-                    cerr << "row " << cur_row << " to " << out_map[i_row][col] << endl;
                     ++cur_offset;
                     if (cur_offset == ie.second.length()) {
                         cur_offset = 0;
@@ -281,20 +278,12 @@ unordered_map<int64_t, unordered_map<int64_t, string>> align_insertion_index(con
                 } else {
                     // and the rest is unaligned
                     out_map[i_row][col] = '-';
-                    cerr << "row " << cur_row << " to " << out_map[i_row][col] << endl;
                 }
             }            
         }
         assert(cur_offset == 0 && cur_row == in_elem.second.size());
     }
 
-    for (const auto xx : out_idx) {
-        cerr << "out col " << xx.first;
-        for (auto yy : xx.second) {
-            cerr << "out row " << yy.first << "->" << yy.second << "<-" << endl;
-        }
-    }
-    
     return out_idx;
 }
 
@@ -339,7 +328,6 @@ void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t ha
         gam_info->index.find(gam_info->cursor, node_id, [&](const vg::Alignment& aln) {            
             // this is the position w.r.t the read alignment
             int64_t pos = 0;
-            cerr << "yam balls" << endl;
             for (int64_t i = 0; i < aln.path().mapping_size(); ++i) {
                 const vg::Mapping& mapping = aln.path().mapping(i);
                 if (mapping.position().node_id() == node_id) {
@@ -356,19 +344,16 @@ void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t ha
                     if (name.empty()) {
                         name = "aln"; 
                     }
-                    cerr << "pushing mapping with name " << name << endl;
                     names.push_back(name);
                     start_positions.push_back(pos);
                 }
                 for (int64_t j = 0; j < mapping.edit_size(); ++j) {
                     pos += mapping.edit(j).to_length();
-                    cerr << " pos += " << mapping.edit(j).to_length() << " = " << pos << endl;
                 }
             }
             int64_t n_mappings = mappings.size() - sequence_lengths.size();
             // manually count it up, to support case where sequence string not in alignment (gaf?)
             for (int64_t i = 0; i < n_mappings; ++i) {
-                cerr << "pushing sequence length " << pos << endl;
                 if (!aln.sequence().empty()) {
                     //assert(aln.sequence().length() == pos);
                 }
@@ -406,10 +391,8 @@ void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t ha
             // add the opening gaps
             int64_t col = 0;
             int64_t node_offset = 0;
-            cerr << "\nfam " << i << " with edit size " << mappings[i].edit_size() << endl;
             for (; col < mappings[i].position().offset(); ++col) {
                 row->bases[col] = '-';
-                cerr << "add \'" << '-' << "\'" << endl;
             }
             node_offset = col;
             // add in the sequence
@@ -420,9 +403,7 @@ void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t ha
                     for (int64_t k = 0; k < edit.from_length(); ++k) {
                         if (!edit.sequence().empty()) {
                             row->bases[col] = edit.sequence()[k];                            
-                            cerr << "m-add \'" << edit.sequence()[k] << "\'" << " k=" << k <<  " s=" << edit.sequence() << endl;
                         } else {
-                            cerr << "M-add \'" << node_sequence[node_offset] << " offset=" << node_offset << endl;
                             row->bases[col] = node_sequence[node_offset];
                         }
                         ++col;
@@ -434,7 +415,6 @@ void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t ha
                     for (int64_t k = 0; k < edit.from_length(); ++k) {
                         row->bases[col++] = '-';
                         ++node_offset;
-                        cerr << "d-add \'" << '-' << "\'" << endl;
                     }
                     
                 } else {
@@ -442,7 +422,6 @@ void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t ha
                     assert(edit.from_length() < edit.to_length());
                     // add the common part [todo: this should probably not be aligned automaticall going forward]
                     for (int64_t k = 0; k < edit.from_length(); ++k) {
-                        cerr << "adding ocmmon insertion base " << edit.sequence()[k] << " to col " << col << endl;
                         row->bases[col++] = edit.sequence()[k];
                         ++node_offset;
                         ++row->length;
@@ -451,10 +430,8 @@ void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t ha
                     const unordered_map<int64_t, string>& row_alignments = ins_alignments.at(col);
                     // find the row
                     const string& row_string = row_alignments.at(i);
-                    cerr << "found row string ->" << row_string << "<- it has length " << row_string.length() << endl; 
                     for (int64_t k = 0; k < row_string.length(); ++k) {
                         row->bases[col++] = row_string[k];
-                        cerr << "adding row string k=" << k << " base=" << row_string[k] << endl;
                         if (row_string[k] != '-') {
                             ++row->length;
                         }
@@ -465,7 +442,6 @@ void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t ha
             // add the closing gaps
             for (int64_t j = node_offset; j < node_sequence.length(); ++j) {
                 row->bases[j] = '-';
-                cerr << "C-add \'" << '-' << "\'" << endl;
             }
             
             if (row->strand == 0) {
@@ -506,7 +482,6 @@ void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t ha
         for (int64_t col = 0; col < node_sequence.length(); ++col) {
             // add insertion gaps if the column is in the insertion index
             if (ins_alignments.count(col)) {
-                cerr << "adding insertions for column " << col << endl;
                 int64_t gaps = ins_alignments[col].begin()->second.length();
                 for (int64_t k = 0; k < gaps; ++k) {
                     row->bases[maf_col++] = '-';
