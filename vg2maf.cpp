@@ -262,6 +262,11 @@ unordered_map<int64_t, unordered_map<int64_t, string>> align_insertion_index(con
 
 void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t handle, path_handle_t ref_path_handle, LW* output) {
 
+    // we don't care about the chain orientation, everything below is based on the underlying node being forward
+    if (graph.get_is_reverse(handle)) {
+        handle = graph.flip(handle);
+    }
+    
     vector<step_handle_t> steps = graph.steps_of_handle(handle);
     if (steps.empty()) {
         cerr << "[vg2maf] warning: Skipping node " << graph.get_id(handle) << " because there are no paths on it" << endl;
@@ -281,7 +286,6 @@ void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t ha
 
     nid_t node_id = graph.get_id(handle);
     string node_sequence = graph.get_sequence(handle);
-    string node_sequence_rev = graph.get_sequence(graph.flip(handle));
 
     // convert the gam indxes to rows
     if (gam_info) {
@@ -352,8 +356,6 @@ void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t ha
             row->start = start_positions[i];
             row->strand = mapping.position().is_reverse() ? 0 : 1;
             row->bases = (char*)st_calloc(alignment->column_number, sizeof(char));
-            bool flipped = mapping.position().is_reverse() != graph.get_is_reverse(handle);
-            const string& node_seq_oriented = flipped ? node_sequence_rev : node_sequence;
             // add the opening gaps
             int64_t col = 0;
             int64_t node_offset = 0;
@@ -373,8 +375,8 @@ void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t ha
                             row->bases[col] = edit.sequence()[k];                            
                             cerr << "m-add \'" << edit.sequence()[k] << "\'" << " k=" << k <<  " s=" << edit.sequence() << endl;
                         } else {
-                            cerr << "M-add \'" << node_seq_oriented[node_offset] << " offset=" << node_offset << endl;
-                            row->bases[col] = node_seq_oriented[node_offset];
+                            cerr << "M-add \'" << node_sequence[node_offset] << " offset=" << node_offset << endl;
+                            row->bases[col] = node_sequence[node_offset];
                         }
                         ++col;
                         ++node_offset;
@@ -418,6 +420,10 @@ void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t ha
                 row->bases[j] = '-';
                 cerr << "C-add \'" << '-' << "\'" << endl;
             }
+            
+            if (row->strand == 0) {
+                row->start = row->sequence_length - row->start - row->length;
+            }
 
             rows.push_back(row);
         }
@@ -437,10 +443,9 @@ void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t ha
         // todo: check this strand logic
         handle_t handle_of_step = graph.get_handle_of_step(step_handle);
         row->strand = graph.get_is_reverse(handle_of_step) ? 0 : 1;
-        bool flipped = graph.get_is_reverse(handle_of_step) != graph.get_is_reverse(handle);
         if (row->strand == 0) {
+            // if reverse strand, MAF wants coordinates from end of path. 
             row->start = row->sequence_length - row->start - row->length;
-            flipped = !flipped;
         }
         int64_t gaps = 0;
         for (const pair<int64_t, unordered_map<int64_t, string>>& ie : ins_alignments) {
@@ -449,7 +454,6 @@ void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t ha
         row->bases = (char*)st_calloc(node_sequence.length() + gaps + 1, sizeof(char));
         // calloc should do this but just in case
         row->bases[node_sequence.length() + gaps] = '\0';
-        const string& node_seq_oriented = flipped ? node_sequence_rev : node_sequence;
         int64_t maf_col = 0;
         // copy the node sequence in base by base
         for (int64_t col = 0; col < node_sequence.length(); ++col) {
@@ -462,7 +466,7 @@ void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t ha
                 }
                 
             }
-            row->bases[maf_col++] = node_seq_oriented[col];
+            row->bases[maf_col++] = node_sequence[col];
         }
         assert(maf_col == alignment->column_number);
         rows.push_back(row);
