@@ -439,7 +439,7 @@ void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t ha
         row->strand = graph.get_is_reverse(handle_of_step) ? 0 : 1;
         bool flipped = graph.get_is_reverse(handle_of_step) != graph.get_is_reverse(handle);
         if (row->strand == 0) {
-            row->start += row->length - 1;
+            row->start = row->sequence_length - row->start - row->length;
             flipped = !flipped;
         }
         int64_t gaps = 0;

@@ -26,7 +26,7 @@ class Vg2mafTest(unittest.TestCase):
                     s_lines.append(line.rstrip().split())
 
         # nothing below makes sense unless rows are sorted by path position
-        s_lines = sorted(s_lines, key=lambda x : (x[1], int(x[2])))
+        s_lines = sorted(s_lines, key=lambda x : (x[1], int(x[4]+x[2])))
         
         for toks in s_lines:
             name = toks[1]
@@ -43,8 +43,24 @@ class Vg2mafTest(unittest.TestCase):
             out_map[name] += seq
         return out_map
 
-    def flip_path(self, vg_name, path_name, out_vg_name, out_path_name):
-        """ make a graph where a backwards version of path_name is added as out_path_name """
+    def maf2blocks(self, maf_name):
+        """ return a list of blocks, each block being a list of tokenized rows """
+        out_blocks = []
+        out_block = []
+        with open(maf_name, 'r') as maf_file:
+            for line in maf_file:
+                if line.startswith('s'):
+                    out_block.append(line.rstrip().split())
+                else:
+                    if out_block:
+                        out_blocks.append(out_block)
+                    out_block = []
+        if out_block:
+            out_blocks.append(out_block)
+        return out_blocks
+
+    def copy_path(self, vg_name, path_name, out_vg_name, out_path_name, flip=False):
+        """ make a graph where a second (possibly backwards) version of path_name is added as out_path_name """
         path_gaf_name = path_name + '.gaf'
         with open(path_gaf_name, 'w') as path_gaf_file:
             subprocess.check_call(['vg', 'paths', '-x', self.tiny_vg, '-A', '-Q', path_name], stdout=path_gaf_file)
@@ -61,19 +77,35 @@ class Vg2mafTest(unittest.TestCase):
                     if c in ['>', '<']:
                         if step:
                             steps.append(step)
-                        # flip the sign
-                        step = '>' if c == '<' else '<'
+                        if flip:
+                            step = '>' if c == '<' else '<'
+                        else:
+                            step = c
                     else:
                         step += c
                 if step:
                     steps.append(step)
                 # flip the steps
-                toks[5] = "".join(reversed(steps))
+                toks[5] = "".join(reversed(steps) if flip else steps)
                 out_path_gaf_file.write('\t'.join(toks) + '\n')
 
         # add the flipped path back to the graph
         with open(out_vg_name, 'w') as out_vg_file:
             subprocess.check_call(['vg', 'augment', vg_name, out_path_gaf_name, '-F', '-B'], stdout=out_vg_file)
+
+    def assert_files_same(self, file_name_1, file_name_2):
+        """ check text files line by line """
+        lines1 = []
+        with open(file_name_1, 'r') as file1:
+            for line in file1:
+                lines1.append(line.rstrip())
+        lines2 = []
+        with open(file_name_2, 'r') as file2:
+            for line in file2:
+                lines2.append(line.rstrip())
+        self.assertEqual(len(lines1), len(lines2))
+        for line1, line2 in zip(lines1, lines2):
+            self.assertEqual(line1, line2)
 
     def vg2path(self, vg_name):
         """ return a map of pathname->sequence"""
@@ -109,7 +141,7 @@ class Vg2mafTest(unittest.TestCase):
     def test_simple_reverse(self):
         """ do an easy conversion on reverse strand """
         rev_vg_name = 'tiny_rev.vg'
-        self.flip_path(self.tiny_vg, 'x', rev_vg_name, 'x_rev')
+        self.copy_path(self.tiny_vg, 'x', rev_vg_name, 'x_rev', flip=True)
 
         subprocess.check_call(['vg', 'index', self.tiny_vg, '-j', 'tiny.dist'])
         out_maf_name = 'tiny_rev.maf'
@@ -123,6 +155,67 @@ class Vg2mafTest(unittest.TestCase):
         for path_name, path_seq in vg_paths.items():
             self.assertEqual(maf_paths[path_name], path_seq)
 
+        # check that all coordinates are equal and somewhat sane
+        out_maf_blocks = self.maf2blocks(out_maf_name)
+        for block in out_maf_blocks:
+            self.assertEqual(len(block), 2)
+            self.assertEqual(block[0][1], 'x')
+            self.assertEqual(block[1][1], 'x_rev')
+            self.assertEqual(block[0][4], '+')
+            self.assertEqual(block[1][4], '-')
+            self.assertLess(int(block[0][2]), int(block[0][5]))
+            block[1][1] = 'x'
+            block[1][4] = '+'
+            self.assertEqual(block[0], block[1])
+
+    def test_match_forward(self):
+        """ make sure a (trvial) gam alignment gives identical results to embedded path """
+        subprocess.check_call(['vg', 'index', self.tiny_vg, '-j', 'tiny.dist'])
+
+        # make a maf from a 2-path vg file
+        xy_vg_name = 'tiny-x2.vg'
+        self.copy_path(self.tiny_vg, 'x', xy_vg_name, 'x2', flip=False)
+        x2_maf_name = 'x2.maf'
+        with open(x2_maf_name, 'w') as out_maf_file:
+            subprocess.check_call(['vg2maf', xy_vg_name, '-d', 'tiny.dist', '-r', 'x'], stdout=out_maf_file)
+
+        # make a maf from original vg + gam version of second path
+        x2_gam_name = 'x2.gam'
+        with open(x2_gam_name, 'w') as x2_gam_file:
+            subprocess.check_call(['vg', 'paths', '-x', xy_vg_name, '-Q', 'x2', '-X'], stdout=x2_gam_file)
+        subprocess.check_call(['vg', 'gamsort', x2_gam_name, '-i', x2_gam_name + '.gai'], stdout=subprocess.DEVNULL)
+        
+        match_name = 'match.vg'
+        match_maf_name = 'match.maf'
+        with open(match_maf_name, 'w') as match_maf_file:
+            subprocess.check_call(['vg2maf', self.tiny_vg, '-d', 'tiny.dist', '-r', 'x', '-g', x2_gam_name], stdout=match_maf_file)
+
+        self.assert_files_same(x2_maf_name, match_maf_name)
+
+    def test_match_reverse(self):
+        """ make sure a (trvial) gam alignment in reverse sense gives identical results to embedded path """
+        subprocess.check_call(['vg', 'index', self.tiny_vg, '-j', 'tiny.dist'])
+
+        # make a maf from a 2-path vg file
+        xy_vg_name = 'tiny-x2-rev.vg'
+        self.copy_path(self.tiny_vg, 'x', xy_vg_name, 'x2', flip=True)
+        x2_maf_name = 'x2-rev.maf'
+        with open(x2_maf_name, 'w') as out_maf_file:
+            subprocess.check_call(['vg2maf', xy_vg_name, '-d', 'tiny.dist', '-r', 'x'], stdout=out_maf_file)
+
+        # make a maf from original vg + gam version of second path
+        x2_gam_name = 'x2-rev.gam'
+        with open(x2_gam_name, 'w') as x2_gam_file:
+            subprocess.check_call(['vg', 'paths', '-x', xy_vg_name, '-Q', 'x2', '-X'], stdout=x2_gam_file)
+        subprocess.check_call(['vg', 'gamsort', x2_gam_name, '-i', x2_gam_name + '.gai'], stdout=subprocess.DEVNULL)
+        
+        match_name = 'match-rev.vg'
+        match_maf_name = 'match-rev.maf'
+        with open(match_maf_name, 'w') as match_maf_file:
+            subprocess.check_call(['vg2maf', self.tiny_vg, '-d', 'tiny.dist', '-r', 'x', '-g', x2_gam_name], stdout=match_maf_file)
+
+        self.assert_files_same(x2_maf_name, match_maf_name)
+        
     def test_snp_forward(self):
         """ test a single forward strand snp """
         # Manually make this alignment
@@ -161,7 +254,7 @@ class Vg2mafTest(unittest.TestCase):
 
         self.assertEqual(['s', 'x', '0', '8', '+', '50', 'CAAATAAG'], lines_by_offset[0][0])
         self.assertEqual(['s', 'snp', '0', '4', '+', '4', '--AAGA--'],lines_by_offset[0][1])
-
+                
     def test_deletion_forward(self):
         """ test a single forward strand deletion """
         # Manually make this alignment
