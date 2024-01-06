@@ -1,3 +1,4 @@
+#include "vg_types.hpp"
 #include "stream_index.hpp"
 
 #include <iostream>

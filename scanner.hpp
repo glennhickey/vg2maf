@@ -6,7 +6,7 @@
  * Define some "scanners" that can traverse a tree of VG
  * Protobuf objects and iterate over items found in the tree.
  */
-
+#include "vg_types.hpp"
 #include <vg/vg.pb.h>
 #include <functional>
 

@@ -14,6 +14,7 @@
 
 #include <vg/vg.pb.h>
 #include <vg/io/protobuf_iterator.hpp>
+#include "vg_types.hpp"
 #include "scanner.hpp"
 
 namespace vg {
