@@ -54,7 +54,7 @@ void help(char** argv) {
        << "    -p, --progress            Print progress" << endl
        << "    -d, --dist FILE           Distance index from vg index -j [REQUIRED]" << endl
        << "    -r, --ref-prefix NAME     Name or prefix of reference path [REQUIRED]" << endl
-       << "    -g, --gam FILE            GAM file. Must have .gai index from \"vg gamsort x.gam -i x.sort.gai > x.sort.gam\"" << endl
+       << "    -g, --gam FILE            sorted GAM file. Must have .gai index. Make both with \"vg gamsort x.gam -i x.sort.gam.gai > x.sort.gam\"" << endl
        << endl;
 }    
 

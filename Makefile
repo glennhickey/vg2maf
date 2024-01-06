@@ -52,6 +52,5 @@ deps/libvgio/build/libvgio.a:
 vg2maf : vg2maf.o scanner.o stream_index.o deps/taffy/lib/libstTaf.a ${libbdsgPath}/lib/libbdsg.a deps/libvgio/build/libvgio.a
 	${CXX} ${CXXFLAGS} -lm -lz -llzma -lbz2 -ldeflate -fopenmp -pthread vg2maf.o stream_index.o scanner.o deps/taffy/lib/libstTaf.a deps/taffy/lib/libsonLib.a ${libbdsgLibs} -ljansson deps/libvgio/build/libvgio.a -lprotobuf -lhts -o vg2maf
 
-#test :
-#	make
-#	cd tests && prove -v t
+test : vg2maf
+	cd test && python vg2mafTest.py
