@@ -585,24 +585,30 @@ void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_
          << graph.get_id(end_handle) << ":" << graph.get_is_reverse(end_handle) << endl;
 #endif
 
-    set<pair<path_handle_t, bool>> start_ref_paths;
-    set<pair<path_handle_t, bool>> end_ref_paths;
+    unordered_map<path_handle_t, int64_t> start_ref_paths;
+    unordered_map<path_handle_t, int64_t> end_ref_paths;    
     graph.for_each_step_on_handle(start_handle, [&](step_handle_t step_handle) {
         path_handle_t step_path_handle = graph.get_path_handle_of_step(step_handle);
         string path_name = graph.get_path_name(step_path_handle);
         if (path_name.compare(0, ref_path.length(), ref_path) == 0) {
-            bool reversed = graph.get_is_reverse(graph.get_handle_of_step(step_handle)) == graph.get_is_reverse(start_handle);
-            start_ref_paths.insert(make_pair(step_path_handle, reversed));
+            if (start_ref_paths.count(step_path_handle)) {
+                cerr << "[vg2maf] warning: multiple steps of reference path " << graph.get_path_name(step_path_handle)
+                     << " found on chain start node " << graph.get_id(start_handle)
+                     << ". MAF blocks and rows may be out of order in output" << endl;
+            }
+            start_ref_paths[step_path_handle] = graph.get_position_of_step(step_handle);
         }
     });
     if (!start_ref_paths.empty()) {
         graph.for_each_step_on_handle(end_handle, [&](step_handle_t step_handle) {
             path_handle_t step_path_handle = graph.get_path_handle_of_step(step_handle);
-            string path_name = graph.get_path_name(step_path_handle);
-            bool reversed = graph.get_is_reverse(graph.get_handle_of_step(step_handle)) == graph.get_is_reverse(end_handle);
-            auto val = make_pair(step_path_handle, reversed);
-            if (path_name.compare(0, ref_path.length(), ref_path) == 0 && start_ref_paths.count(val)) {
-                end_ref_paths.insert(val);
+            if (start_ref_paths.count(step_path_handle)) {
+                if (end_ref_paths.count(step_path_handle)) {
+                    cerr << "[vg2maf] warning: multiple steps of reference path " << graph.get_path_name(step_path_handle)
+                         << " found on chain end node " << graph.get_id(start_handle)
+                         << ". MAF blocks and rows may be out of order in output" << endl;
+                }
+                end_ref_paths[step_path_handle] = graph.get_position_of_step(step_handle);
             }
         });                
     }
@@ -620,13 +626,11 @@ void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_
     }
 
     path_handle_t ref_path_handle = end_ref_paths.begin()->first;
-    bool ref_path_reversed = end_ref_paths.begin()->second;
+    //todo: this may fall down with cyclic ref
+    bool ref_path_reversed = end_ref_paths.begin()->second < start_ref_paths.at(ref_path_handle);   
     if (ref_path_reversed) {
-        // line the chain up to the path -- todo: may not be practical once we smarten up logic
-        // but mc graphs always have forward reference paths, which hopefully persists to chain level
-        handle_t temp_handle = start_handle;
-        start_handle = graph.flip(end_handle);
-        end_handle = graph.flip(temp_handle);
+        // todo: why does this seem to have no effect on iteration below.
+        chain = distance_index.flip(chain);
     }
 
     LW *output = LW_construct(stdout, false);
