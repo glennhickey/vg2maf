@@ -53,7 +53,7 @@ void help(char** argv) {
        << "options: " << endl
        << "    -p, --progress            Print progress" << endl
        << "    -d, --dist FILE           Distance index from vg index -j [REQUIRED]" << endl
-       << "    -r, --ref-prefix NAME     Name or prefix of reference path [REQUIRED]" << endl
+       << "    -r, --ref-prefix NAME     Prefix of reference path(s) [REQUIRED]" << endl
        << "    -g, --gam FILE            sorted GAM file. Must have .gai index. Make both with \"vg gamsort x.gam -i x.sort.gam.gai > x.sort.gam\"" << endl
        << endl;
 }    
@@ -296,7 +296,7 @@ void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t ha
     
     vector<step_handle_t> steps = graph.steps_of_handle(handle);
     if (steps.empty()) {
-        cerr << "[vg2maf] warning: Skipping node " << graph.get_id(handle) << " because there are no paths on it" << endl;
+        //cerr << "[vg2maf] warning: Skipping node " << graph.get_id(handle) << " because there are no paths on it" << endl;
         return;
     }
     
@@ -623,6 +623,7 @@ void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_
         cerr << "[vg2maf] warning: " << end_ref_paths.size() << " reference paths found through chain from "
              << graph.get_id(start_handle) << ":" << graph.get_is_reverse(start_handle) << " to "
              << graph.get_id(end_handle) << ":" << graph.get_is_reverse(end_handle) << ". Just choosing first" << endl;
+        cerr << "the paths are "; for (const auto xx : end_ref_paths) cerr << graph.get_path_name(xx.first) << ", "; cerr << endl;
     }
 
     path_handle_t ref_path_handle = end_ref_paths.begin()->first;
@@ -638,8 +639,20 @@ void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_
     Tag* tag = tag_construct((char*)"version", (char*)"1", NULL);
     maf_write_header(tag, output);
 
-    // convert the chain, one node/snarl at a time
+    vector<net_handle_t> chain_childs;
     distance_index.for_each_child(chain, [&](net_handle_t net_handle) {
+        chain_childs.push_back(net_handle);
+    });
+    if (ref_path_reversed) {
+        std::reverse(chain_childs.begin(), chain_childs.end());
+    }
+
+    // convert the chain, one node/snarl at a time
+    for (int64_t i = 0; i < chain_childs.size(); ++i) {
+        net_handle_t net_handle = chain_childs[i];
+        if (ref_path_reversed) {
+            net_handle = distance_index.flip(net_handle);
+        }
         if (distance_index.is_node(net_handle)) {            
             convert_node(graph, gam_info, distance_index.get_handle(net_handle, &graph), ref_path_handle, output);
         } else if (distance_index.is_snarl(net_handle)) {
@@ -649,7 +662,7 @@ void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_
         } else {
             assert(false);
         }
-    });
+    }
     
     LW_destruct(output, false);
 }
