@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import sys
 import os
 import unittest
@@ -141,7 +143,7 @@ class Vg2mafTest(unittest.TestCase):
     def test_simple_reverse(self):
         """ do an easy conversion on reverse strand """
         rev_vg_name = 'tiny_rev.vg'
-        self.copy_path(self.tiny_vg, 'x', rev_vg_name, 'x_rev', flip=True)
+        self.copy_path(self.tiny_vg, 'x', rev_vg_name, 'rev-x', flip=True)
 
         subprocess.check_call(['vg', 'index', self.tiny_vg, '-j', 'tiny.dist'])
         out_maf_name = 'tiny_rev.maf'
@@ -160,7 +162,7 @@ class Vg2mafTest(unittest.TestCase):
         for block in out_maf_blocks:
             self.assertEqual(len(block), 2)
             self.assertEqual(block[0][1], 'x')
-            self.assertEqual(block[1][1], 'x_rev')
+            self.assertEqual(block[1][1], 'rev-x')
             self.assertEqual(block[0][4], '+')
             self.assertEqual(block[1][4], '-')
             self.assertLess(int(block[0][2]), int(block[0][5]))
@@ -174,7 +176,7 @@ class Vg2mafTest(unittest.TestCase):
 
         # make a maf from a 2-path vg file
         xy_vg_name = 'tiny-x2.vg'
-        self.copy_path(self.tiny_vg, 'x', xy_vg_name, 'x2', flip=False)
+        self.copy_path(self.tiny_vg, 'x', xy_vg_name, 'rev-x', flip=False)
         x2_maf_name = 'x2.maf'
         with open(x2_maf_name, 'w') as out_maf_file:
             subprocess.check_call(['vg2maf', xy_vg_name, '-d', 'tiny.dist', '-r', 'x'], stdout=out_maf_file)
@@ -182,7 +184,7 @@ class Vg2mafTest(unittest.TestCase):
         # make a maf from original vg + gam version of second path
         x2_gam_name = 'x2.gam'
         with open(x2_gam_name, 'w') as x2_gam_file:
-            subprocess.check_call(['vg', 'paths', '-x', xy_vg_name, '-Q', 'x2', '-X'], stdout=x2_gam_file)
+            subprocess.check_call(['vg', 'paths', '-x', xy_vg_name, '-Q', 'rev-x', '-X'], stdout=x2_gam_file)
         subprocess.check_call(['vg', 'gamsort', x2_gam_name, '-i', x2_gam_name + '.gai'], stdout=subprocess.DEVNULL)
         
         match_name = 'match.vg'
@@ -198,7 +200,7 @@ class Vg2mafTest(unittest.TestCase):
 
         # make a maf from a 2-path vg file
         xy_vg_name = 'tiny-x2-rev.vg'
-        self.copy_path(self.tiny_vg, 'x', xy_vg_name, 'x2', flip=True)
+        self.copy_path(self.tiny_vg, 'x', xy_vg_name, 'rev-x', flip=True)
         x2_maf_name = 'x2-rev.maf'
         with open(x2_maf_name, 'w') as out_maf_file:
             subprocess.check_call(['vg2maf', xy_vg_name, '-d', 'tiny.dist', '-r', 'x'], stdout=out_maf_file)
@@ -206,7 +208,7 @@ class Vg2mafTest(unittest.TestCase):
         # make a maf from original vg + gam version of second path
         x2_gam_name = 'x2-rev.gam'
         with open(x2_gam_name, 'w') as x2_gam_file:
-            subprocess.check_call(['vg', 'paths', '-x', xy_vg_name, '-Q', 'x2', '-X'], stdout=x2_gam_file)
+            subprocess.check_call(['vg', 'paths', '-x', xy_vg_name, '-Q', 'rev-x', '-X'], stdout=x2_gam_file)
         subprocess.check_call(['vg', 'gamsort', x2_gam_name, '-i', x2_gam_name + '.gai'], stdout=subprocess.DEVNULL)
         
         match_name = 'match-rev.vg'
