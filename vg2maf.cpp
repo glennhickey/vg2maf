@@ -6,6 +6,7 @@
 #include <memory>
 #include <unistd.h>
 #include <getopt.h>
+#include <omp.h>
 
 #include "handlegraph/path_handle_graph.hpp"
 #include "bdsg/packed_graph.hpp"
@@ -54,7 +55,8 @@ void help(char** argv) {
        << "    -p, --progress            Print progress" << endl
        << "    -d, --dist FILE           Distance index from vg index -j [REQUIRED]" << endl
        << "    -r, --ref-prefix NAME     Prefix of reference path(s) [REQUIRED]" << endl
-       << "    -g, --gam FILE            sorted GAM file. Must have .gai index. Make both with \"vg gamsort x.gam -i x.sort.gam.gai > x.sort.gam\"" << endl
+       << "    -g, --gam FILE            Sorted GAM file. Must have .gai index. Make both with \"vg gamsort x.gam -i x.sort.gam.gai > x.sort.gam\"" << endl
+       << "    -t, --threads N           Number of threads to use [default: all available]" << endl      
        << endl;
 }    
 
@@ -74,6 +76,7 @@ int main(int argc, char** argv) {
             {"ref-path", required_argument, 0, 'r'},
             {"dist", required_argument, 0, 'd'},
             {"gam", required_argument, 0, 'g'},
+            {"threads", required_argument, 0, 't'},            
             {0, 0, 0, 0}
         };
 
@@ -100,6 +103,16 @@ int main(int argc, char** argv) {
         case 'g':
             gam_filename = optarg;
             break;
+        case 't':
+        {
+            int num_threads = stoi(optarg);
+            if (num_threads <= 0) {
+                cerr << "[vg2maf] error: Thread count (-t) set to " << num_threads << ", must set to a positive integer." << endl;
+                exit(1);
+            }
+            omp_set_num_threads(num_threads);
+            break;
+        }                                    
         case 'h':
         case '?':
             /* getopt_long already printed an error message. */
