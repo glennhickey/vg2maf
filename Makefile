@@ -62,13 +62,13 @@ clean :
 	cd deps/taffy && make clean
 	cd deps/libvgio && make clean
 
-vg2maf.o : vg2maf.cpp stream_index.hpp scanner.hpp
+vg2maf.o : vg2maf.cpp stream_index.hpp scanner.hpp vg_types.hpp
 	${CXX} ${CXXFLAGS} -I . vg2maf.cpp -c
 
-scanner.o : scanner.cpp scanner.hpp deps/libvgio/build/libvgio.a
+scanner.o : scanner.cpp scanner.hpp vg_types.hpp scanner.hpp deps/libvgio/build/libvgio.a
 	${CXX} ${CXXFLAGS} -I . scanner.cpp -c
 
-stream_index.o : stream_index.cpp stream_index.hpp deps/libvgio/build/libvgio.a
+stream_index.o : stream_index.cpp stream_index.hpp scanner.hpp vg_types.hpp deps/libvgio/build/libvgio.a
 	${CXX} ${CXXFLAGS} -I . stream_index.cpp -c
 
 deps/taffy/lib/libstTaf.a:

@@ -40,6 +40,7 @@ struct GAMInfo {
 static void reverse_complement_mapping_in_place(vg::Mapping* m, const function<int64_t(nid_t)>& node_length);
 static unordered_map<int64_t, unordered_map<int64_t, string>> get_insertion_index(const vector<vg::Mapping>& mappings);
 static unordered_map<int64_t, unordered_map<int64_t, string>> align_insertion_index(const unordered_map<int64_t, unordered_map<int64_t, string>>& in_idx);
+static vector<handle_t> get_ref_traversal(PathPositionHandleGraph& graph, path_handle_t ref_path_handle, handle_t start_handle, handle_t end_handle);
 static void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t handle,
                          path_handle_t ref_path_handle, LW* output);
 static void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_index, GAMInfo* gam_info,
@@ -183,8 +184,12 @@ int main(int argc, char** argv) {
     }
 
     // iterate the top-level chains
+    int64_t i = 0;
     distance_index.for_each_child(distance_index.get_root(), [&](net_handle_t net_handle) {
         if (distance_index.is_chain(net_handle)) {
+            if (progress) {
+                cerr << "[vg2maf]: Converting chain " << i++ << endl;
+            }
             convert_chain(*graph, distance_index, gam_info.get(), net_handle, ref_path_prefix);
         }        
     });
@@ -298,6 +303,68 @@ unordered_map<int64_t, unordered_map<int64_t, string>> align_insertion_index(con
     }
 
     return out_idx;
+}
+
+vector<handle_t> get_ref_traversal(PathPositionHandleGraph& graph, path_handle_t ref_path_handle, handle_t start_handle, handle_t end_handle) {
+
+    if (start_handle == end_handle) {
+        return {start_handle};
+    }
+    
+    vector<handle_t> ref_trav;
+    vector<step_handle_t> start_step_handles = graph.steps_of_handle(start_handle);
+    for (step_handle_t start_step : start_step_handles) {
+        if (graph.get_path_handle_of_step(start_step) == ref_path_handle) {
+            bool forward = false;
+            // look for next id on path going into snarl
+            // todo: is there a crazy case where we need strand (thank vg call code deals with all this)
+            if (graph.has_next_step(start_step)) {
+                nid_t next_id = graph.get_id(graph.get_handle_of_step(graph.get_next_step(start_step)));
+                graph.follow_edges(start_handle, false, [&](handle_t follow_handle) {
+                    if (graph.get_id(follow_handle) == next_id) {
+                        forward = true;
+                    }
+                });
+            }
+            if (forward == false) {
+                bool found = false;
+                if (graph.has_previous_step(start_step)) {
+                    nid_t prev_id = graph.get_id(graph.get_handle_of_step(graph.get_previous_step(start_step)));
+                    graph.follow_edges(start_handle, false, [&](handle_t follow_handle) {
+                        if (graph.get_id(follow_handle) == prev_id) {
+                            found = true;
+                    }
+                    });
+                }
+                assert(found);
+            }
+            ref_trav.clear();
+            if (forward) {
+                step_handle_t end_of_path = graph.path_end(ref_path_handle);
+                for (step_handle_t cur_step = start_step; cur_step != end_of_path; cur_step = graph.get_next_step(cur_step)) {
+                    handle_t cur_handle = graph.get_handle_of_step(cur_step);
+                    ref_trav.push_back(cur_handle);
+                    if (graph.get_id(cur_handle) == graph.get_id(end_handle)) {
+                        return ref_trav;
+                    }
+                }
+            } else {
+                step_handle_t end_of_path = graph.path_front_end(ref_path_handle);
+                for (step_handle_t cur_step = start_step; cur_step != end_of_path; cur_step = graph.get_previous_step(cur_step)) {
+                    handle_t cur_handle = graph.get_handle_of_step(cur_step);
+                    ref_trav.push_back(graph.flip(cur_handle));
+                    if (graph.get_id(cur_handle) == graph.get_id(end_handle)) {
+                        return ref_trav;
+                    }                
+                }
+            }
+        }
+    }
+    cerr << "[vg2maf] warning: Unable to find reference path (" << graph.get_path_name(ref_path_handle) << ") through snarl "
+         << graph.get_id(start_handle) << ":" << graph.get_is_reverse(start_handle) << " -> "
+         << graph.get_id(end_handle) << ":" << graph.get_is_reverse(end_handle)
+         << ". Will export anyway but blocks may be badly unsorted" << endl;
+    return vector<handle_t>();
 }
 
 void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t handle, path_handle_t ref_path_handle, LW* output) {
@@ -561,6 +628,15 @@ void convert_snarl(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_
          << graph.get_id(end_handle) << ":" << graph.get_is_reverse(end_handle) << endl;
 #endif
 
+    // quick hack to try to enforce ordering on reference path
+    // (does not apply of no reference traversal)
+    vector<handle_t> ref_path = get_ref_traversal(graph, ref_path_handle, start_handle, end_handle);
+    unordered_map<handle_t, int64_t> ref_order;
+    for (int64_t i = 0; i < ref_path.size(); ++i) {
+        ref_order[ref_path[i]] = i;
+    }
+    int64_t cur_ref_pos = 1; // we dont search start, so set to 1 and not 0
+    
     // use start-to-end bfs search to order the blocks
     deque<handle_t> bfs_queue;
     unordered_set<handle_t> visited = {start_handle, end_handle, graph.flip(start_handle)};    
@@ -572,14 +648,23 @@ void convert_snarl(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_
         handle_t handle = bfs_queue.front();
         bfs_queue.pop_front();
         if (!visited.count(handle)) {
-            convert_node(graph, gam_info, handle, ref_path_handle, output);
-            visited.insert(handle);
-            graph.follow_edges(handle, false, [&](handle_t other_handle) {
-                bfs_queue.push_back(other_handle);
-            });
-            graph.follow_edges(handle, true, [&](handle_t other_handle) {
-                bfs_queue.push_back(other_handle);
-            });
+            if (ref_order.count(handle) && ref_order.at(handle) != cur_ref_pos) {
+                // hack to enforce ordering on ref path
+                bfs_queue.push_back(handle);
+            } else {
+                convert_node(graph, gam_info, handle, ref_path_handle, output);
+                visited.insert(handle);
+                graph.follow_edges(handle, false, [&](handle_t other_handle) {
+                    bfs_queue.push_back(other_handle);
+                });
+                graph.follow_edges(handle, true, [&](handle_t other_handle) {
+                    bfs_queue.push_back(other_handle);
+                });
+                if (ref_order.count(handle)) {
+                    assert(cur_ref_pos == ref_order.at(handle));
+                    ++cur_ref_pos;
+                }
+            }
         }
     }
 }
