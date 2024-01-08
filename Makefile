@@ -84,4 +84,4 @@ vg2maf : vg2maf.o scanner.o stream_index.o deps/taffy/lib/libstTaf.a ${libbdsgPa
 	${CXX} ${CXXFLAGS} -lm -lz -llzma -lbz2 -ldeflate -fopenmp -pthread vg2maf.o stream_index.o scanner.o deps/taffy/lib/libstTaf.a deps/taffy/lib/libsonLib.a ${libbdsgLibs} -ljansson deps/libvgio/build/libvgio.a -lprotobuf -lhts -o vg2maf
 
 test : vg2maf
-	cd test && python vg2mafTest.py
+	cd test && python3 vg2mafTest.py
