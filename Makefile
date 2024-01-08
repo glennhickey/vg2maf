@@ -57,19 +57,27 @@ cleanFast :
 	rm -f vg2maf
 
 clean :
-	rm -f vg2maf *.o
+	rm -f vg2maf *.o deps/htslib/libhts.a deps/htslib/configure deps/taffy/lib/libstTaf.a ${libbdsgPath}/lib/libbdsg.a deps/libvgio/build/libvgio.a
 	cd deps/libbdsg-easy && make clean
 	cd deps/taffy && make clean
 	cd deps/libvgio && make clean
+	cd deps/htslib && rm configure && make clean
 
-vg2maf.o : vg2maf.cpp stream_index.hpp scanner.hpp vg_types.hpp
+vg2maf.o : vg2maf.cpp stream_index.hpp scanner.hpp vg_types.hpp deps/libvgio/build/libvgio.a ${libbdsgPath}/lib/libbdsg.a deps/taffy/lib/libstTaf.a 
 	${CXX} ${CXXFLAGS} -I . vg2maf.cpp -c
 
-scanner.o : scanner.cpp scanner.hpp vg_types.hpp scanner.hpp deps/libvgio/build/libvgio.a
+scanner.o : scanner.cpp scanner.hpp vg_types.hpp scanner.hpp deps/libvgio/build/libvgio.a ${libbdsgPath}/lib/libbdsg.a deps/taffy/lib/libstTaf.a 
 	${CXX} ${CXXFLAGS} -I . scanner.cpp -c
 
-stream_index.o : stream_index.cpp stream_index.hpp scanner.hpp vg_types.hpp deps/libvgio/build/libvgio.a
+stream_index.o : stream_index.cpp stream_index.hpp scanner.hpp vg_types.hpp deps/libvgio/build/libvgio.a ${libbdsgPath}/lib/libbdsg.a deps/taffy/lib/libstTaf.a
 	${CXX} ${CXXFLAGS} -I . stream_index.cpp -c
+
+# cant build static without going through configure (todo: maybe can set a env var)
+deps/htslib/configure :
+	cd deps/htslib && autoreconf --install
+
+deps/htslib/libhts.a : deps/htslib/configure 
+	cd deps/htslib && ./configure --disable-libcurl && ${MAKE}
 
 deps/taffy/lib/libstTaf.a:
 	cd deps/taffy && ${MAKE}
@@ -80,8 +88,10 @@ ${libbdsgPath}/lib/libbdsg.a:
 deps/libvgio/build/libvgio.a:
 	cd deps/libvgio && rm -rf build && mkdir build && cd build && cmake .. && ${MAKE} && cp vg.pb.h ../include/vg
 
-vg2maf : vg2maf.o scanner.o stream_index.o deps/taffy/lib/libstTaf.a ${libbdsgPath}/lib/libbdsg.a deps/libvgio/build/libvgio.a
-	${CXX} ${CXXFLAGS} -lm -lz -llzma -lbz2 -ldeflate -fopenmp -pthread vg2maf.o stream_index.o scanner.o deps/taffy/lib/libstTaf.a deps/taffy/lib/libsonLib.a ${libbdsgLibs} -ljansson deps/libvgio/build/libvgio.a -lprotobuf -lhts -o vg2maf
+vg2maf : vg2maf.o scanner.o stream_index.o deps/taffy/lib/libstTaf.a ${libbdsgPath}/lib/libbdsg.a deps/libvgio/build/libvgio.a deps/htslib/libhts.a
+	${CXX} ${CXXFLAGS} vg2maf.o stream_index.o scanner.o deps/taffy/lib/libstTaf.a deps/taffy/lib/libsonLib.a ${libbdsgLibs} -ljansson deps/libvgio/build/libvgio.a -lprotobuf deps/htslib/libhts.a -lcurl -lm -lz -llzma -lbz2 -ldeflate -fopenmp -pthread -o vg2maf
+
+all : vg2maf
 
 test : vg2maf
 	cd test && python3 vg2mafTest.py
