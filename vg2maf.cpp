@@ -715,6 +715,7 @@ void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_
         cerr <<"[vg2maf] warning: No reference path found through chain from " 
              << graph.get_id(start_handle) << ":" << graph.get_is_reverse(start_handle) << " to "
              << graph.get_id(end_handle) << ":" << graph.get_is_reverse(end_handle) << endl;
+        return;
     }
 
     if (end_ref_paths.size() > 1) {
