@@ -194,6 +194,10 @@ int main(int argc, char** argv) {
         }        
     });
 
+    if (progress) {
+        cerr << "[vg2maf]: Finished" << endl;
+    }
+
     return 0;
 }
 
@@ -276,44 +280,32 @@ unordered_map<int64_t, unordered_map<int64_t, string>> align_insertion_index(con
             width += ie.second.length();
             rows.push_back(ie.first);
         }
-        cerr << " width is " << width << endl;
+        std::sort(rows.begin(), rows.end());
         // allocate the output alignment rows
         for (const auto& ie : in_map) {
             out_map[ie.first].resize(width);
-            cerr << "assing width to row " << endl;
         }
         // write the unaligned output alignment
         int64_t cur_row = 0;
         int64_t cur_offset = 0;
         // do it column by column
         for (int64_t col = 0; col < width; ++col) {
-            cerr << "column " << col << endl;
-            for (const auto& ie : in_map) {
-                int64_t i_row = ie.first;
-                cerr << "c_row " << cur_row << " i_row " << i_row << endl;                     
+            for (int64_t r_idx = 0; r_idx < rows.size(); ++r_idx) {
+                int64_t i_row = rows[r_idx];
+                const string& i_string = in_map.at(i_row);
                 // write the sequence for each row
-                if (rows[cur_row] == i_row) {
-                    cerr << "we're in c_row" << endl;
-                    out_map[i_row][col] = ie.second[cur_offset];
+                if (r_idx == cur_row) {
+                    out_map[i_row][col] = i_string[cur_offset];
                     ++cur_offset;
-                    cerr << "updated offset " << cur_offset << endl;
-                    cerr << "cur_offset checke vs " << ie.second.length() << endl;
-                    if (cur_offset == ie.second.length()) {
+                    if (cur_offset == i_string.length()) {
                         cur_offset = 0;
                         ++cur_row;
-                        cerr << "update cur_row " << cur_row << endl;
                     }
                 } else {
                     // and the rest is unaligned
                     out_map[i_row][col] = '-';
                 }
             }            
-        }
-        if (cur_offset != 0) {
-            cerr << "cur_offset " << cur_offset << endl;
-        }
-        if (rows[cur_row] != rows.size()) {
-            cerr << "cur_row " << cur_row << " vs " << rows.size() << endl;
         }
         assert(cur_offset == 0 && cur_row == rows.size());
     }
@@ -464,13 +456,9 @@ void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t ha
         ins_alignments = align_insertion_index(ins_idx);
 
         // add enough alignment columns for all insertions
-        cerr << "our alignment legnth " << alignment->column_number << endl;
         for (const auto& elem : ins_alignments) {
             alignment->column_number += elem.second.begin()->second.length();
-            cerr << "adding " << elem.second.begin()->second.length() << " for insertions at col "
-                 << elem.first << endl;
         }
-        cerr << "our alignment legnth now " << alignment->column_number << endl;
 
 #ifdef debug
         if (mappings.size() > 0) {
@@ -578,13 +566,11 @@ void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t ha
         // calloc should do this but just in case
         row->bases[node_sequence.length() + gaps] = '\0';
         int64_t maf_col = 0;
-        cerr << "maf_col " << 0 << " node " << graph.get_id(handle) << " has length " << node_sequence.length() << endl;
         // copy the node sequence in base by base
         for (int64_t col = 0; col <= node_sequence.length(); ++col) {
             // add insertion gaps if the column is in the insertion index
             if (ins_alignments.count(col)) {
                 int64_t gaps = ins_alignments[col].begin()->second.length();
-                cerr << "adding " << gaps << " for insertion at col " << col << " with maf_col "<< maf_col << endl;
                 for (int64_t k = 0; k < gaps; ++k) {
                     row->bases[maf_col++] = '-';
                 }
@@ -594,7 +580,6 @@ void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t ha
                 row->bases[maf_col++] = node_sequence[col];
             }
         }
-        cerr << " cekcing maf_col " << maf_col << " vs " << alignment->column_number << endl;
         assert(maf_col == alignment->column_number);
         rows.push_back(row);
     }
