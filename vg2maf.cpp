@@ -54,7 +54,7 @@ void help(char** argv) {
        << endl
        << "options: " << endl
        << "    -p, --progress            Print progress" << endl
-       << "    -d, --dist FILE           Distance index from vg index -j [REQUIRED]" << endl
+       << "    -d, --dist FILE           Distance index from vg index -j" << endl
        << "    -r, --ref-prefix NAME     Prefix of reference path(s) [REQUIRED]" << endl
        << "    -g, --gam FILE            Sorted GAM file. Must have .gai index. Make both with \"vg gamsort x.gam -i x.sort.gam.gai > x.sort.gam\"" << endl
        << "    -t, --threads N           Number of threads to use [default: all available]" << endl      
@@ -129,10 +129,6 @@ int main(int argc, char** argv) {
         help(argv);
         return 1;
     }
-    if (distance_index_filename.empty()) {
-        cerr << "[vg2maf] error: Distance index must be specified with -d" << endl;
-        return 1;
-    }
     if (ref_path_prefix.empty()) {
         cerr << "[vg2maf] error: Reference path must be speficied with -r" << endl;
         return 1;
@@ -155,6 +151,10 @@ int main(int argc, char** argv) {
         cerr << "[vg2maf]: Applied position overlay" << endl;
     }
     
+    if (distance_index_filename.empty()) {
+        distance_index_filename = graph_filename.substr(0, graph_filename.find_last_of(".")) + ".dist";
+        cerr << "[vg2maf]: Assuming distance index is " << distance_index_filename << endl;
+    }
     SnarlDistanceIndex distance_index;
     distance_index.deserialize(distance_index_filename);
     if (progress) {
@@ -290,6 +290,7 @@ unordered_map<int64_t, unordered_map<int64_t, string>> align_insertion_index(con
         int64_t cur_offset = 0;
         // do it column by column
         for (int64_t col = 0; col < width; ++col) {
+            bool shift_row = false;
             for (int64_t r_idx = 0; r_idx < rows.size(); ++r_idx) {
                 int64_t i_row = rows[r_idx];
                 const string& i_string = in_map.at(i_row);
@@ -298,14 +299,18 @@ unordered_map<int64_t, unordered_map<int64_t, string>> align_insertion_index(con
                     out_map[i_row][col] = i_string[cur_offset];
                     ++cur_offset;
                     if (cur_offset == i_string.length()) {
-                        cur_offset = 0;
-                        ++cur_row;
+                        shift_row = true;
                     }
                 } else {
                     // and the rest is unaligned
                     out_map[i_row][col] = '-';
                 }
-            }            
+            }
+            if (shift_row) {
+                cur_offset = 0;
+                ++cur_row;
+                shift_row = false;
+            }
         }
         assert(cur_offset == 0 && cur_row == rows.size());
     }

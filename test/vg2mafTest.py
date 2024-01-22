@@ -544,9 +544,20 @@ class Vg2mafTest(unittest.TestCase):
         self.assertEqual(['s', 'ins2', '0', '10', '+', '10', 'CAA---CC---ATAAG'], lines_by_offset[0][2])
         self.assertEqual(['s', 'ins3-rev', '0', '11', '-', '11', 'CAA-----GGGATAAG'], lines_by_offset[0][3])
         
+    def test_real_chunks(self):
+        """
+        these are from a real hprc file that caused crashes in first version of vg2maf
+        mostly checking that they don't crash -- i have not manually verified the output
+        """
+        for chunk_number in [30, 64, 172]:
+            out_maf_filename = 'chunk_{}.out.maf'.format(chunk_number)
+            true_maf_filename = 'chunk_{}.truth.maf'.format(chunk_number)
+            with open(out_maf_filename, 'w') as out_maf_file:
+                subprocess.check_call(['vg2maf', 'chunk_{}.vg'.format(chunk_number), '-d',
+                                       'chunk_{}.dist'.format(chunk_number), '-r', 'GRCh38'], stdout=out_maf_file)
+            subprocess.check_call(['diff', out_maf_filename, true_maf_filename])
 
-        
-        
+            
 
 if __name__ == '__main__':
     unittest.main()
