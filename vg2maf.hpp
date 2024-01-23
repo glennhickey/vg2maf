@@ -39,14 +39,15 @@ vector<handle_t> get_ref_traversal(PathPositionHandleGraph& graph, path_handle_t
 
 // convert a node to maf
 // if gam_info is given, extract all relevant mappings and add them too
-void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t handle,
-                  path_handle_t ref_path_handle, LW* output);
+// alignment object must be freed with alignmenet_destruct(alignment, true)
+Alignment* convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t handle,
+                        path_handle_t ref_path_handle);
 
 // convert a chain to maf, by scanning its children in order
 void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_index, GAMInfo* gam_info,
                    net_handle_t chain, const string& ref_path);
 
-// convert a snarl to maf, by visiting nodes in reference-based order
+// return the handles inside a snarl in the order that we want them in the maf
 // todo: this function probably needs some work to effectively put complex regions through taffy norm
-void convert_snarl(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_index, GAMInfo* gam_info,
-                   net_handle_t snarl, path_handle_t ref_path_handle, LW* output);
+void traverse_snarl(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_index,
+                    net_handle_t snarl, path_handle_t ref_path_handle, vector<handle_t>& out_handles);

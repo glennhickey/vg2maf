@@ -207,7 +207,7 @@ vector<handle_t> get_ref_traversal(PathPositionHandleGraph& graph, path_handle_t
     return vector<handle_t>();
 }
 
-void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t handle, path_handle_t ref_path_handle, LW* output) {
+Alignment* convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t handle, path_handle_t ref_path_handle) {
 
     // we don't care about the chain orientation, everything below is based on the underlying node being forward
     if (graph.get_is_reverse(handle)) {
@@ -217,7 +217,7 @@ void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t ha
     vector<step_handle_t> steps = graph.steps_of_handle(handle);
     if (steps.empty()) {
         //cerr << "[vg2maf] warning: Skipping node " << graph.get_id(handle) << " because there are no paths on it" << endl;
-        return;
+        return NULL;
     }
     
     Alignment* alignment = (Alignment*)st_calloc(1, sizeof(Alignment));
@@ -450,14 +450,11 @@ void convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t ha
     // allocate the tags array which as it's required my taf
     alignment->column_tags = (Tag**)st_calloc(alignment->column_number, sizeof(Tag*));
 
-    // write the alignment    
-    maf_write_block(alignment, output);
-
-    alignment_destruct(alignment, true);
+    return alignment; // caller must run alignment_destruct()    
 }
 
-void convert_snarl(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_index, GAMInfo* gam_info,
-                   net_handle_t snarl, path_handle_t ref_path_handle, LW* output) {
+void traverse_snarl(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_index,
+                    net_handle_t snarl, path_handle_t ref_path_handle, vector<handle_t>& out_handles) {
 
     net_handle_t start_bound = distance_index.get_bound(snarl, false, true);
     net_handle_t end_bound = distance_index.get_bound(snarl, true, false);
@@ -468,7 +465,7 @@ void convert_snarl(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_
 #ifdef debug
     cerr << "snarl goes from " << graph.get_id(start_handle) << ":" << graph.get_is_reverse(start_handle) << " to "
          << graph.get_id(end_handle) << ":" << graph.get_is_reverse(end_handle) << endl;
-#endif
+#endif    
 
     // quick hack to try to enforce ordering on reference path
     // (does not apply of no reference traversal)
@@ -494,7 +491,7 @@ void convert_snarl(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_
                 // hack to enforce ordering on ref path
                 bfs_queue.push_back(handle);
             } else {
-                convert_node(graph, gam_info, handle, ref_path_handle, output);
+                out_handles.push_back(handle);
                 visited.insert(handle);
                 graph.follow_edges(handle, false, [&](handle_t other_handle) {
                     bfs_queue.push_back(other_handle);
@@ -594,17 +591,28 @@ void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_
         if (ref_path_reversed) {
             net_handle = distance_index.flip(net_handle);
         }
+        // queue up all child nodes in order we want to convert
+        vector<handle_t> node_queue;
         if (distance_index.is_node(net_handle)) {
-            convert_node(graph, gam_info, distance_index.get_handle(net_handle, &graph), ref_path_handle, output);
-        } else if (distance_index.is_snarl(net_handle)) {            
-            convert_snarl(graph, distance_index, gam_info, net_handle, ref_path_handle, output);
+            node_queue.push_back(distance_index.get_handle(net_handle, &graph));
+        } else if (distance_index.is_snarl(net_handle)) {
+            traverse_snarl(graph, distance_index, net_handle, ref_path_handle, node_queue);
         } else if (distance_index.is_chain(net_handle)) {
             cerr << "TODO: CHILD CHAIN" << endl;
         } else {
             assert(false);
         }
-    }
-    
+
+        // convert them and stream to stdout
+        for (handle_t& node : node_queue) {
+            Alignment* alignment = convert_node(graph, gam_info, node, ref_path_handle);
+            if (alignment) {
+                maf_write_block(alignment, output);
+                alignment_destruct(alignment, true);
+            }
+        }
+    }        
+
     LW_destruct(output, false);
 }
 
