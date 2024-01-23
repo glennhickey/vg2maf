@@ -63,8 +63,11 @@ clean :
 	cd deps/libvgio && make clean
 	cd deps/htslib && rm configure && make clean
 
-vg2maf_main.o : vg2maf_main.cpp stream_index.hpp scanner.hpp vg_types.hpp deps/libvgio/build/libvgio.a ${libbdsgPath}/lib/libbdsg.a deps/taffy/lib/libstTaf.a 
+vg2maf_main.o : vg2maf_main.cpp vg2maf.hpp stream_index.hpp scanner.hpp vg_types.hpp deps/libvgio/build/libvgio.a ${libbdsgPath}/lib/libbdsg.a deps/taffy/lib/libstTaf.a 
 	${CXX} ${CXXFLAGS} -I . vg2maf_main.cpp -c
+
+vg2maf.o : vg2maf.cpp vg2maf.hpp stream_index.hpp scanner.hpp vg_types.hpp deps/libvgio/build/libvgio.a ${libbdsgPath}/lib/libbdsg.a deps/taffy/lib/libstTaf.a 
+	${CXX} ${CXXFLAGS} -I . vg2maf.cpp -c
 
 scanner.o : scanner.cpp scanner.hpp vg_types.hpp scanner.hpp deps/libvgio/build/libvgio.a ${libbdsgPath}/lib/libbdsg.a deps/taffy/lib/libstTaf.a 
 	${CXX} ${CXXFLAGS} -I . scanner.cpp -c
@@ -88,8 +91,8 @@ ${libbdsgPath}/lib/libbdsg.a:
 deps/libvgio/build/libvgio.a:
 	cd deps/libvgio && rm -rf build && mkdir build && cd build && cmake .. && ${MAKE} && cp vg.pb.h ../include/vg
 
-vg2maf : vg2maf_main.o scanner.o stream_index.o deps/taffy/lib/libstTaf.a ${libbdsgPath}/lib/libbdsg.a deps/libvgio/build/libvgio.a deps/htslib/libhts.a
-	${CXX} ${CXXFLAGS} vg2maf_main.o stream_index.o scanner.o deps/taffy/lib/libstTaf.a deps/taffy/lib/libsonLib.a ${libbdsgLibs} -ljansson deps/libvgio/build/libvgio.a -lprotobuf deps/htslib/libhts.a -lcurl -lm -lz -llzma -lbz2 -ldeflate -fopenmp -pthread -o vg2maf
+vg2maf : vg2maf_main.o vg2maf.o scanner.o stream_index.o deps/taffy/lib/libstTaf.a ${libbdsgPath}/lib/libbdsg.a deps/libvgio/build/libvgio.a deps/htslib/libhts.a
+	${CXX} ${CXXFLAGS} vg2maf_main.o vg2maf.o stream_index.o scanner.o deps/taffy/lib/libstTaf.a deps/taffy/lib/libsonLib.a ${libbdsgLibs} -ljansson deps/libvgio/build/libvgio.a -lprotobuf deps/htslib/libhts.a -lcurl -lm -lz -llzma -lbz2 -ldeflate -fopenmp -pthread -o vg2maf
 
 all : vg2maf
 
