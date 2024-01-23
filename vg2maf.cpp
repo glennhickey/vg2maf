@@ -23,7 +23,11 @@ extern "C" {
 }
 
 // number of nodes to scan before sending to parallel batch
-static const int64_t node_buffer_size = 100000;
+static const int64_t node_buffer_size = 250000;
+// number of bases for each gam index query
+static const int64_t gam_idx_query_bp = 50000;
+// biggest hole allowable in id range passed to gam index
+static const int64_t gam_idx_max_gap = 10;
 
 //#define debug
 
@@ -210,7 +214,8 @@ vector<handle_t> get_ref_traversal(PathPositionHandleGraph& graph, path_handle_t
     return vector<handle_t>();
 }
 
-Alignment* convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t handle, path_handle_t ref_path_handle) {
+Alignment* convert_node(PathPositionHandleGraph& graph, const vector<vg::Alignment>& gam_alignments,
+                        handle_t handle, path_handle_t ref_path_handle) {
 
     // we don't care about the chain orientation, everything below is based on the underlying node being forward
     if (graph.get_is_reverse(handle)) {
@@ -238,7 +243,7 @@ Alignment* convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handl
     string node_sequence = graph.get_sequence(handle);
 
     // convert the gam indxes to rows
-    if (gam_info) {
+    if (!gam_alignments.empty()) {
         // query the index for our node [todo: is this too simplisitic due to repeated queries?]
         vector<vg::Mapping> mappings;
         vector<string> names;
@@ -248,7 +253,7 @@ Alignment* convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handl
 #ifdef debug
         cerr << "doing gam index query on node " << node_id << endl;
 #endif
-        gam_info->index.find(gam_info->cursor, node_id, [&](const vg::Alignment& aln) {            
+        for (const vg::Alignment& aln : gam_alignments) {
             // this is the position w.r.t the read alignment
             int64_t pos = 0;
             for (int64_t i = 0; i < aln.path().mapping_size(); ++i) {
@@ -282,7 +287,7 @@ Alignment* convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handl
                 }
                 sequence_lengths.push_back(pos);
             }
-        });
+        }
 
         // collect all the inserted sequences, indexed by column
         auto ins_idx = get_insertion_index(mappings);
@@ -456,6 +461,31 @@ Alignment* convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handl
     return alignment; // caller must run alignment_destruct()    
 }
 
+void convert_node_range(PathPositionHandleGraph& graph, GAMInfo* gam_info, const vector<handle_t>& node_buffer,
+                        const vector<int64_t>& sorted_nodes, int64_t range_start, int64_t range_end,
+                        path_handle_t ref_path_handle, vector<Alignment*>& out_alignment_buffer) {
+
+    // perform range query on gam index
+    nid_t first_id = graph.get_id(node_buffer[sorted_nodes[range_start]]);
+    nid_t last_id = graph.get_id(node_buffer[sorted_nodes[range_end - 1]]);
+    vector<vg::Alignment> alignments;
+    if (gam_info != nullptr) {
+        gam_info->index.find(gam_info->cursor, first_id, last_id, [&](const vg::Alignment& aln) {
+            alignments.push_back(aln);
+        });
+    }
+
+    // convert nodes individually, letting them sort out which alignments are relevant
+    // (this should still be more efficient that doing individual gam index queries)
+    for (int64_t i = range_start; i < range_end; ++i) {
+        int64_t buffer_index = sorted_nodes[i];
+        const handle_t& handle = node_buffer[buffer_index];
+        out_alignment_buffer[buffer_index] = convert_node(graph, alignments, handle, ref_path_handle);
+    }
+}
+
+
+
 void traverse_snarl(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_index,
                     net_handle_t snarl, path_handle_t ref_path_handle, vector<handle_t>& out_handles) {
 
@@ -609,13 +639,40 @@ void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_
         }
 
         if (node_buffer.size() >= node_buffer_size || i == chain_childs.size() - 1) {
-            alignment_buffer.resize(node_buffer.size());
-            // convert them in parallel
-#pragma omp parallel for
-            for (int64_t j = 0; j < node_buffer.size(); ++j) {
-                int tid = omp_get_thread_num();
-                alignment_buffer[j] = convert_node(graph, gam_info[tid], node_buffer[j], ref_path_handle);
+            // sort the nodes into ranges
+            // todo: this logic only required for gam index acces, but think it's fast
+            // enough that it doesn't need to be conditional on -g
+            // sorted_nodes stores offset in node_buffer
+            vector<int64_t> sorted_nodes(node_buffer.size());
+            std::iota(sorted_nodes.begin(), sorted_nodes.end(), 0);
+            std::sort(sorted_nodes.begin(), sorted_nodes.end(), [&graph,&node_buffer](int64_t x1, int64_t x2) {
+                return graph.get_id(node_buffer[x1]) < graph.get_id(node_buffer[x2]);
+            });
+            // ranges stores offsets in sorted_nodes
+            vector<int64_t> ranges;
+            int64_t range_size = numeric_limits<int64_t>::max();
+            nid_t prev_id = 0;
+            for (int64_t j = 0; j < sorted_nodes.size(); ++j) {
+                nid_t cur_id = graph.get_id(node_buffer[sorted_nodes[j]]);
+                if (range_size > gam_idx_query_bp || (j > 0 && cur_id - prev_id > gam_idx_max_gap)) {
+                    ranges.push_back(j);
+                    range_size = 0;
+                }
+                range_size += graph.get_length(node_buffer[sorted_nodes[j]]);
+                prev_id = cur_id;
             }
+
+            alignment_buffer.resize(node_buffer.size());
+#pragma omp parallel for schedule(dynamic, 1)
+            for (int64_t j = 0; j < ranges.size(); ++j) {
+                int tid = omp_get_thread_num();
+                // these are offsets (open end) in sorted_nodes that define our batch
+                int64_t range_start = ranges[j];
+                int64_t range_end = j < ranges.size() - 1 ? ranges[j+1] : sorted_nodes.size();
+                convert_node_range(graph, gam_info[tid], node_buffer, sorted_nodes, range_start, range_end,
+                                   ref_path_handle, alignment_buffer);
+            }
+
             // write them in series
             for (int64_t j = 0; j < alignment_buffer.size(); ++j) {
                 if (alignment_buffer[j]) {

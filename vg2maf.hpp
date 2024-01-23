@@ -38,10 +38,18 @@ vector<handle_t> get_ref_traversal(PathPositionHandleGraph& graph, path_handle_t
                                    handle_t start_handle, handle_t end_handle);
 
 // convert a node to maf
-// if gam_info is given, extract all relevant mappings and add them too
 // alignment object must be freed with alignmenet_destruct(alignment, true)
-Alignment* convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handle_t handle,
+Alignment* convert_node(PathPositionHandleGraph& graph, const vector<vg::Alignment>& gam_alignments, handle_t handle,
                         path_handle_t ref_path_handle);
+
+// converts a batch of nodes to maf
+// this is used in attempt to aggregate gam index queries into ranges.
+// ranges_start and range_end give an open-ended interval in sorted_nodes
+// sorted_nodes stores offsets in node_buffer and out_alignment_buffer
+void convert_node_range(PathPositionHandleGraph& graph, GAMInfo* gam_info, const vector<handle_t>& node_buffer,
+                        const vector<int64_t>& sorted_nodes, int64_t range_start, int64_t range_end,
+                        path_handle_t ref_path_handle, vector<Alignment*>& out_alignment_buffer);
+
 
 // convert a chain to maf, by scanning its children in order
 void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_index, vector<GAMInfo*>& gam_info,
