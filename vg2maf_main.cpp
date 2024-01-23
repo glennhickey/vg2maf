@@ -68,7 +68,7 @@ int main(int argc, char** argv) {
 
         int option_index = 0;
 
-        c = getopt_long (argc, argv, "hpr:d:g:",
+        c = getopt_long (argc, argv, "hpr:d:g:t:",
                          long_options, &option_index);
 
         // Detect the end of the options.
@@ -124,7 +124,10 @@ int main(int argc, char** argv) {
     if (!graph_stream) {
         cerr << "[vg2maf] error: Unable to open input graph " << graph_filename << endl;
         return 1;
-    }    
+    }
+    if (progress) {
+        cerr << "[vg2maf]: Using " << get_thread_count() << (get_thread_count() > 1 ? " threads" : " thread") << endl;
+    }
     unique_ptr<PathHandleGraph> base_graph = load_graph(graph_stream);
     graph_stream.close();
     if (progress) {
@@ -146,25 +149,32 @@ int main(int argc, char** argv) {
         cerr << "[vg2maf]: Loaded distance index" << endl;
     }
 
-    unique_ptr<GAMInfo> gam_info;
-    ifstream gam_file;
+    vector<unique_ptr<GAMInfo>> gam_info_vec;
+    gam_info_vec.resize(get_thread_count());
+    vector<GAMInfo*> gam_info_ptrs(get_thread_count(), nullptr);
+    vector<ifstream> gam_file_vec(get_thread_count());
     if (!gam_filename.empty()) {
-        gam_info.reset(new GAMInfo());
-        gam_file.open(gam_filename);
-        if (!gam_file) {
-            cerr << "[vg2maf] error: Unable to open gam file " << gam_filename << endl;
-            return 1;
-        }
-        gam_info->cursor = vg::GAMIndex::cursor_t(gam_file);
-        string gam_index_filename = gam_filename + ".gai";
-        ifstream gam_index_file(gam_index_filename);
-        if (!gam_index_file) {
-            cerr << "[vg2maf] error: Unable to open gam index " << gam_index_filename << endl;
-            return 1;
-        }
-        gam_info->index.load(gam_index_file);
-        if (progress) {
-            cerr << "[vg2maf]: Loaded GAM index" << endl;
+        for (int i = 0; i < gam_info_vec.size(); ++i) {
+            unique_ptr<GAMInfo>& gam_info = gam_info_vec[i];
+            ifstream& gam_file = gam_file_vec[i];
+            gam_info.reset(new GAMInfo());
+            gam_file.open(gam_filename);
+            if (!gam_file) {
+                cerr << "[vg2maf] error: Unable to open gam file " << gam_filename << endl;
+                return 1;
+            }
+            gam_info->cursor = vg::GAMIndex::cursor_t(gam_file);
+            string gam_index_filename = gam_filename + ".gai";
+            ifstream gam_index_file(gam_index_filename);
+            if (!gam_index_file) {
+                cerr << "[vg2maf] error: Unable to open gam index " << gam_index_filename << endl;
+                return 1;
+            }
+            gam_info->index.load(gam_index_file);
+            if (progress && i == 0) {
+                cerr << "[vg2maf]: Loaded GAM index" << endl;
+            }
+            gam_info_ptrs[i] = gam_info.get();
         }
     }
 
@@ -175,7 +185,7 @@ int main(int argc, char** argv) {
             if (progress) {
                 cerr << "[vg2maf]: Converting chain " << i++ << endl;
             }
-            convert_chain(*graph, distance_index, gam_info.get(), net_handle, ref_path_prefix);
+            convert_chain(*graph, distance_index, gam_info_ptrs, net_handle, ref_path_prefix);
         }        
     });
 

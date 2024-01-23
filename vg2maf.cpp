@@ -22,6 +22,9 @@ extern "C" {
 #include "sonLib.h"
 }
 
+// number of nodes to scan before sending to parallel batch
+static const int64_t node_buffer_size = 4096;
+
 //#define debug
 
 using namespace std;
@@ -508,7 +511,7 @@ void traverse_snarl(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance
     }
 }
 
-void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_index, GAMInfo* gam_info,
+void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_index, vector<GAMInfo*>& gam_info,
                    net_handle_t chain, const string& ref_path) {
 
     net_handle_t start_bound = distance_index.get_bound(chain, false, true);
@@ -585,6 +588,9 @@ void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_
         std::reverse(chain_childs.begin(), chain_childs.end());
     }
 
+    vector<handle_t> node_buffer;
+    vector<Alignment*> alignment_buffer;
+    
     // convert the chain, one node/snarl at a time
     for (int64_t i = 0; i < chain_childs.size(); ++i) {
         net_handle_t net_handle = chain_childs[i];
@@ -592,26 +598,36 @@ void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_
             net_handle = distance_index.flip(net_handle);
         }
         // queue up all child nodes in order we want to convert
-        vector<handle_t> node_queue;
         if (distance_index.is_node(net_handle)) {
-            node_queue.push_back(distance_index.get_handle(net_handle, &graph));
+            node_buffer.push_back(distance_index.get_handle(net_handle, &graph));
         } else if (distance_index.is_snarl(net_handle)) {
-            traverse_snarl(graph, distance_index, net_handle, ref_path_handle, node_queue);
+            traverse_snarl(graph, distance_index, net_handle, ref_path_handle, node_buffer);
         } else if (distance_index.is_chain(net_handle)) {
             cerr << "TODO: CHILD CHAIN" << endl;
         } else {
             assert(false);
         }
 
-        // convert them and stream to stdout
-        for (handle_t& node : node_queue) {
-            Alignment* alignment = convert_node(graph, gam_info, node, ref_path_handle);
-            if (alignment) {
-                maf_write_block(alignment, output);
-                alignment_destruct(alignment, true);
+        if (node_buffer.size() >= node_buffer_size || i == chain_childs.size() - 1) {
+            alignment_buffer.resize(node_buffer.size());
+            // convert them in parallel
+#pragma omp parallel for
+            for (int64_t j = 0; j < node_buffer.size(); ++j) {
+                int tid = omp_get_thread_num();
+                alignment_buffer[j] = convert_node(graph, gam_info[tid], node_buffer[j], ref_path_handle);
             }
+            // write them in series
+            for (int64_t j = 0; j < alignment_buffer.size(); ++j) {
+                if (alignment_buffer[j]) {
+                    maf_write_block(alignment_buffer[j], output);
+                    alignment_destruct(alignment_buffer[j], true);
+                }
+            }
+            
+            node_buffer.clear();
         }
-    }        
+    }
+    assert(node_buffer.empty());
 
     LW_destruct(output, false);
 }

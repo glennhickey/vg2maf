@@ -44,7 +44,7 @@ Alignment* convert_node(PathPositionHandleGraph& graph, GAMInfo* gam_info, handl
                         path_handle_t ref_path_handle);
 
 // convert a chain to maf, by scanning its children in order
-void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_index, GAMInfo* gam_info,
+void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_index, vector<GAMInfo*>& gam_info,
                    net_handle_t chain, const string& ref_path);
 
 // return the handles inside a snarl in the order that we want them in the maf
