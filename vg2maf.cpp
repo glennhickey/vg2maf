@@ -23,7 +23,7 @@ extern "C" {
 }
 
 // number of nodes to scan before sending to parallel batch
-static const int64_t node_buffer_size = 4096;
+static const int64_t node_buffer_size = 100000;
 
 //#define debug
 

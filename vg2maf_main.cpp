@@ -180,10 +180,18 @@ int main(int argc, char** argv) {
 
     // iterate the top-level chains
     int64_t i = 0;
+    int64_t num_chains = 0;
+    if (progress) {
+        distance_index.for_each_child(distance_index.get_root(), [&](net_handle_t net_handle) {
+            if (distance_index.is_chain(net_handle)) {
+                ++num_chains;
+            }
+        });
+    }
     distance_index.for_each_child(distance_index.get_root(), [&](net_handle_t net_handle) {
         if (distance_index.is_chain(net_handle)) {
             if (progress) {
-                cerr << "[vg2maf]: Converting chain " << i++ << endl;
+                cerr << "[vg2maf]: Converting chain " << ++i << " / " << num_chains << endl;
             }
             convert_chain(*graph, distance_index, gam_info_ptrs, net_handle, ref_path_prefix);
         }        
