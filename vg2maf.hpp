@@ -53,7 +53,7 @@ void convert_node_range(PathPositionHandleGraph& graph, GAMInfo* gam_info, const
 
 // convert a chain to maf, by scanning its children in order
 void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_index, vector<GAMInfo*>& gam_info,
-                   net_handle_t chain, const string& ref_path);
+                   net_handle_t chain, const string& ref_path, bool progress, const pair<int64_t, int64_t>& chain_idx);
 
 // return the handles inside a snarl in the order that we want them in the maf
 // todo: this function probably needs some work to effectively put complex regions through taffy norm

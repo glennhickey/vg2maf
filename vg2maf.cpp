@@ -484,8 +484,6 @@ void convert_node_range(PathPositionHandleGraph& graph, GAMInfo* gam_info, const
     }
 }
 
-
-
 void traverse_snarl(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_index,
                     net_handle_t snarl, path_handle_t ref_path_handle, vector<handle_t>& out_handles) {
 
@@ -542,7 +540,7 @@ void traverse_snarl(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance
 }
 
 void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_index, vector<GAMInfo*>& gam_info,
-                   net_handle_t chain, const string& ref_path) {
+                   net_handle_t chain, const string& ref_path, bool progress, const pair<int64_t, int64_t>& chain_idx) {
 
     net_handle_t start_bound = distance_index.get_bound(chain, false, true);
     net_handle_t end_bound = distance_index.get_bound(chain, true, false);
@@ -584,7 +582,7 @@ void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_
     }
         
     if (end_ref_paths.empty()) {
-        cerr <<"[vg2maf] warning: No reference path found through chain from " 
+        cerr <<"[vg2maf] warning: Skipping chain because no reference path found through chain from " 
              << graph.get_id(start_handle) << ":" << graph.get_is_reverse(start_handle) << " to "
              << graph.get_id(end_handle) << ":" << graph.get_is_reverse(end_handle) << endl;
         return;
@@ -598,6 +596,15 @@ void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_
     }
 
     path_handle_t ref_path_handle = end_ref_paths.begin()->first;
+
+    if (progress) {
+        cerr << "[vg2maf]: Converting chain " << chain_idx.first << " / " << chain_idx.second
+             << " on " << graph.get_path_name(ref_path_handle) 
+             << " from " << graph.get_id(start_handle) << ":" << graph.get_is_reverse(start_handle)
+             << " to " << graph.get_id(end_handle) << ":" << graph.get_is_reverse(end_handle)
+             << endl;
+    }
+
     //todo: this may fall down with cyclic ref
     bool ref_path_reversed = end_ref_paths.begin()->second < start_ref_paths.at(ref_path_handle);   
     if (ref_path_reversed) {

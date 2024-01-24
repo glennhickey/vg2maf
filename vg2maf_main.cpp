@@ -190,10 +190,8 @@ int main(int argc, char** argv) {
     }
     distance_index.for_each_child(distance_index.get_root(), [&](net_handle_t net_handle) {
         if (distance_index.is_chain(net_handle)) {
-            if (progress) {
-                cerr << "[vg2maf]: Converting chain " << ++i << " / " << num_chains << endl;
-            }
-            convert_chain(*graph, distance_index, gam_info_ptrs, net_handle, ref_path_prefix);
+            convert_chain(*graph, distance_index, gam_info_ptrs, net_handle, ref_path_prefix, progress,
+                          make_pair(++i, num_chains));
         }        
     });
 
