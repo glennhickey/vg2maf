@@ -395,11 +395,13 @@ Alignment* convert_node(PathPositionHandleGraph& graph, const vector<vg::Alignme
             }
 
             // add the closing gaps
-            for (; node_offset < node_sequence.length(); ++node_offset) {
+            for (; node_offset <= node_sequence.length(); ++node_offset) {
                 if (ins_alignments.count(node_offset)) {
                     insert_insertion_gaps(node_offset, i, col, row->bases);
-                }                
-                row->bases[col++] = '-';
+                }
+                if (node_offset < node_sequence.length()) {
+                    row->bases[col++] = '-';
+                }
             }
             assert(col == alignment->column_number);
             row->bases[col] = '\0';
