@@ -252,6 +252,8 @@ Alignment* convert_node(PathPositionHandleGraph& graph, const vector<vg::Alignme
     nid_t node_id = graph.get_id(handle);
     string node_sequence = graph.get_sequence(handle);
 
+    unordered_map<Alignment_Row*, string> base_qualities;
+
     // convert the gam indxes to rows
     if (!gam_alignments.empty()) {
         // query the index for our node [todo: is this too simplisitic due to repeated queries?]
@@ -260,16 +262,19 @@ Alignment* convert_node(PathPositionHandleGraph& graph, const vector<vg::Alignme
         vector<int64_t> start_positions;
         vector<int64_t> sequence_lengths;
         vector<bool> mapping_reversed;
+        vector<int64_t> alignment_index;
 #ifdef debug
         cerr << "doing gam index query on node " << node_id << endl;
 #endif
-        for (const vg::Alignment& aln : gam_alignments) {
+        for (int64_t ai = 0; ai < gam_alignments.size(); ++ai) {
+            const vg::Alignment& aln = gam_alignments[ai];
             // this is the position w.r.t the read alignment
             int64_t pos = 0;
             for (int64_t i = 0; i < aln.path().mapping_size(); ++i) {
                 const vg::Mapping& mapping = aln.path().mapping(i);
                 if (mapping.position().node_id() == node_id) {
                     mappings.push_back(mapping);
+                    alignment_index.push_back(ai);
                     mapping_reversed.push_back(mapping.position().is_reverse());
                     // easier just to deal with forward mapping from here down
                     // we remember it was reversed in the mapping_reversed vector for the strand field
@@ -328,14 +333,19 @@ Alignment* convert_node(PathPositionHandleGraph& graph, const vector<vg::Alignme
 
         // copy our mappings into the alignment rows
         for (int64_t i = 0; i < mappings.size(); ++i) {
+            const vg::Alignment& aln = gam_alignments[alignment_index[i]];
             vg::Mapping& mapping = mappings[i];
             Alignment_Row* row = (Alignment_Row*)st_calloc(1, sizeof(Alignment_Row));
+            ++alignment->row_number;
             row->sequence_name = stString_copy(names[i].c_str());
             row->length = 0;
             row->sequence_length = sequence_lengths[i];
             row->start = start_positions[i];
             row->strand = mapping_reversed[i] ? 0 : 1;
             row->bases = (char*)st_calloc(alignment->column_number + 1, sizeof(char));
+            // todo: fix default character
+            base_qualities[row].resize(alignment->column_number, '0');
+            string& row_qualities = base_qualities[row];
             // add the opening gaps
             int64_t col = 0;
             int64_t node_offset = 0;
@@ -360,6 +370,9 @@ Alignment* convert_node(PathPositionHandleGraph& graph, const vector<vg::Alignme
                         } else {
                             row->bases[col] = node_sequence[node_offset];
                         }
+                        if (!aln.quality().empty()) {
+                            row_qualities[col] = aln.quality()[row->length];
+                        }
                         ++col;
                         ++node_offset;
                         ++row->length;
@@ -380,6 +393,9 @@ Alignment* convert_node(PathPositionHandleGraph& graph, const vector<vg::Alignme
                     // add the common part [todo: this should probably not be aligned automaticall going forward]
                     for (int64_t k = 0; k < edit.from_length(); ++k) {
                         row->bases[col++] = edit.sequence()[k];
+                        if (!aln.quality().empty()) {
+                            row_qualities[col] = aln.quality()[row->length];
+                        }                        
                         ++node_offset;
                         ++row->length;
                     }
@@ -390,6 +406,9 @@ Alignment* convert_node(PathPositionHandleGraph& graph, const vector<vg::Alignme
                     for (int64_t k = 0; k < row_string.length(); ++k) {
                         row->bases[col++] = row_string[k];
                         if (row_string[k] != '-') {
+                            if (!aln.quality().empty()) {
+                                row_qualities[col] = aln.quality()[row->length];
+                            }
                             ++row->length;
                         }
                     }
@@ -480,6 +499,7 @@ Alignment* convert_node(PathPositionHandleGraph& graph, const vector<vg::Alignme
         }
     }
 
+    assert(alignment->row_number == rows.size());
     Alignment_Row* cur_row = alignment->row;
     for (Alignment_Row* row : rows) {
         if (cur_row == NULL) {
@@ -493,6 +513,30 @@ Alignment* convert_node(PathPositionHandleGraph& graph, const vector<vg::Alignme
 
     // allocate the tags array which as it's required my taf
     alignment->column_tags = (Tag**)st_calloc(alignment->column_number, sizeof(Tag*));
+
+    // add in the base qualities
+    if (!base_qualities.empty()) {
+        // transpose our row qualities into column qualities
+        // todo: we can do columns from the get-go but would need to refactor
+        // so that rows don't get sorted after being built
+        vector<string> column_quality_strings(alignment->column_number);
+        for (int64_t i = 0; i < alignment->column_number; ++i) {
+            column_quality_strings[i].resize(alignment->row_number);
+        }
+        string empty_quality(alignment->column_number, '0'); // todo: default value
+        cur_row = alignment->row;
+        for (int64_t i = 0; cur_row; cur_row = cur_row->n_row, ++i) {
+            string& row_quals = base_qualities.count(cur_row) ? base_qualities[cur_row] : empty_quality;
+            assert(row_quals.length() == alignment->column_number);
+            for (int64_t j = 0; j < row_quals.length(); ++j) {
+                column_quality_strings[j][i] = row_quals[j];
+            }                
+        }
+        // copy the column qualities into tags
+        for (int64_t i = 0; i < alignment->column_number; ++i) {
+            alignment->column_tags[i] = tag_construct((char*)"q", (char*)column_quality_strings[i].c_str(), NULL);
+        }        
+    }
 
     return alignment; // caller must run alignment_destruct()    
 }
