@@ -36,7 +36,9 @@ ifeq ($(shell uname -s),Darwin)
 endif
 
 CXX ?= g++
-CXXFLAGS := -O3 -Werror=return-type -std=c++14 -ggdb -g -MMD -MP $(PARALLEL_FLAGS) $(CXXFLAGS)
+#CXXFLAGS := -O0 -fno-inline -fno-omit-frame-pointer -fsanitize=address
+CXXFLAGS := -O3
+CXXFLAGS += -Werror=return-type -std=c++14 -ggdb -g -MMD -MP $(PARALLEL_FLAGS) $(CXXFLAGS)
 
 CXXFLAGS += -I deps/taffy/taffy/submodules/sonLib/C/inc/ -I deps/taffy/taffy/inc -I deps/libbdsg-easy/include -I deps/libvgio/include/ 
 
