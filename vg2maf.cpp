@@ -585,7 +585,8 @@ void traverse_snarl(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance
 }
 
 void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_index, vector<GAMInfo*>& gam_info,
-                   net_handle_t chain, const string& ref_path, bool progress, const pair<int64_t, int64_t>& chain_idx) {
+                   net_handle_t chain, const string& ref_path, bool progress, const pair<int64_t, int64_t>& chain_idx,
+                   bool taf_output) {
 
     net_handle_t start_bound = distance_index.get_bound(chain, false, true);
     net_handle_t end_bound = distance_index.get_bound(chain, true, false);
@@ -728,7 +729,11 @@ void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_
             // write them in series
             for (int64_t j = 0; j < alignment_buffer.size(); ++j) {
                 if (alignment_buffer[j]) {
-                    maf_write_block(alignment_buffer[j], output);
+                    if (taf_output) {
+                        taf_write_block(NULL, alignment_buffer[j], false, 10000, output);
+                    } else {
+                        maf_write_block(alignment_buffer[j], output);
+                    }
                     alignment_destruct(alignment_buffer[j], true);
                 }
             }

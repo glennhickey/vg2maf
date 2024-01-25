@@ -42,6 +42,7 @@ void help(char** argv) {
        << "    -d, --dist FILE           Distance index from vg index -j" << endl
        << "    -r, --ref-prefix NAME     Prefix of reference path(s) [REQUIRED]" << endl
        << "    -g, --gam FILE            Sorted GAM file. Must have .gai index. Make both with \"vg gamsort x.gam -i x.sort.gam.gai > x.sort.gam\"" << endl
+       << "    -a, --taf                 Outupt TAF instead of MAF (for now, only way to see base qualities)" << endl
        << "    -t, --threads N           Number of threads to use [default: all available]" << endl      
        << endl;
 }    
@@ -51,6 +52,7 @@ int main(int argc, char** argv) {
     string ref_path_prefix;
     string distance_index_filename;
     string gam_filename;
+    bool taf_output = false;
     bool progress = false;
     int c;
     optind = 1; 
@@ -62,13 +64,14 @@ int main(int argc, char** argv) {
             {"ref-path", required_argument, 0, 'r'},
             {"dist", required_argument, 0, 'd'},
             {"gam", required_argument, 0, 'g'},
+            {"taf", no_argument, 0, 'a'},
             {"threads", required_argument, 0, 't'},            
             {0, 0, 0, 0}
         };
 
         int option_index = 0;
 
-        c = getopt_long (argc, argv, "hpr:d:g:t:",
+        c = getopt_long (argc, argv, "hpr:d:g:at:",
                          long_options, &option_index);
 
         // Detect the end of the options.
@@ -88,6 +91,9 @@ int main(int argc, char** argv) {
             break;
         case 'g':
             gam_filename = optarg;
+            break;
+        case 'a':
+            taf_output = true;
             break;
         case 't':
         {
@@ -191,7 +197,7 @@ int main(int argc, char** argv) {
     distance_index.for_each_child(distance_index.get_root(), [&](net_handle_t net_handle) {
         if (distance_index.is_chain(net_handle)) {
             convert_chain(*graph, distance_index, gam_info_ptrs, net_handle, ref_path_prefix, progress,
-                          make_pair(++i, num_chains));
+                          make_pair(++i, num_chains), taf_output);
         }        
     });
 
