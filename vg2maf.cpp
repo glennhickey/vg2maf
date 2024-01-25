@@ -23,11 +23,13 @@ extern "C" {
 }
 
 // number of nodes to scan before sending to parallel batch
-static const int64_t node_buffer_size = 100000;
+static const int64_t node_buffer_size = 250000;
 // number of bases for each gam index query
 static const int64_t gam_idx_query_bp = 10000;
 // biggest hole allowable in id range passed to gam index
-static const int64_t gam_idx_max_gap = 5;
+static const int64_t gam_idx_max_gap = 2;
+// maximum read depth (to prevent memory issues)
+static const int64_t gam_max_depth = 1000;
 
 //#define debug
 
@@ -503,9 +505,18 @@ void convert_node_range(PathPositionHandleGraph& graph, GAMInfo* gam_info, const
     nid_t first_id = graph.get_id(node_buffer[sorted_nodes[range_start]]);
     nid_t last_id = graph.get_id(node_buffer[sorted_nodes[range_end - 1]]);
     vector<vg::Alignment> alignments;
+    int64_t total_aln_length = 0;
+    bool warned = false;
     if (gam_info != nullptr) {
         gam_info->index.find(gam_info->cursor, first_id, last_id, [&](const vg::Alignment& aln) {
-            alignments.push_back(aln);
+            if (total_aln_length / gam_idx_query_bp <= gam_max_depth) {
+                alignments.push_back(aln);                
+            } else if (warned) {
+                cerr << "[vg2maf] warning: dropping alignments found in node range " << range_start <<"-" << range_end
+                     << " to avoid making a giant buffer (coverage limit " << gam_max_depth << " exceeded)." << endl;
+                warned = true;
+            }
+            total_aln_length += aln.sequence().length();
         });
     }
 
