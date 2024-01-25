@@ -543,18 +543,65 @@ class Vg2mafTest(unittest.TestCase):
         self.assertEqual(['s', 'ins1', '0', '11', '+', '11', 'CAAGGG-----ATAAG'], lines_by_offset[0][1])
         self.assertEqual(['s', 'ins2', '0', '10', '+', '10', 'CAA---CC---ATAAG'], lines_by_offset[0][2])
         self.assertEqual(['s', 'ins3-rev', '0', '11', '-', '11', 'CAA-----GGGATAAG'], lines_by_offset[0][3])
+
+    def test_two_insertion_sites_forward(self):
+        """ test a triple forward strand insertion and a single forward insertion, also some offsets """
+
+        # Manually make this alignment (ie all insertions unaligned)
+        # x CAA--------ATA--AG
+        # y --AGGG-----ATA--AG
+        # y CAA---CC---ATATGAG
+        # y CAA-----GGGAT-----        
+        snp_gam_json_name = 'ins32.gam.json'
+        with open(snp_gam_json_name, 'w') as snp_gam_json_file:
+            snp_gam_json_file.write('{"name": "ins1", "path": {"mapping": [{"position": {"node_id": "1", "offset": "2"}, "edit": [{"from_length": 1, "to_length": 1}, {"from_length": 0, "to_length": 3, "sequence": "GGG"}, {"from_length": 5, "to_length": 5}]}]}, "sequence": "AAGGGTAAG"}\n')
+            snp_gam_json_file.write('{"name": "ins2", "path": {"mapping": [{"position": {"node_id": "1", "offset": "0"}, "edit": [{"from_length": 3, "to_length": 3}, {"from_length": 0, "to_length": 2, "sequence": "CC"}, {"from_length": 3, "to_length": 3}, {"from_length": 0, "to_length": 2, "sequence": "TG"}, {"from_length": 2, "to_length": 2}]}]}, "sequence": "CAAACCTATGAG"}\n')
+            snp_gam_json_file.write('{"name": "ins3", "path": {"mapping": [{"position": {"node_id": "1", "offset": "0"}, "edit": [{"from_length": 3, "to_length": 3}, {"from_length": 0, "to_length": 3, "sequence": "GGG"}, {"from_length": 2, "to_length": 2}]}]}, "sequence": "CAAGGGAT"}\n')
+        # convert to gam and index it
+        snp_gam_name = 'ins32.gam'
+        with open(snp_gam_name, 'w') as snp_gam_file:
+            subprocess.check_call(['vg', 'view', '-JaG', snp_gam_json_name], stdout=snp_gam_file)
+        subprocess.check_call(['vg', 'gamsort', snp_gam_name, '-i', snp_gam_name + '.gai'], stdout=subprocess.DEVNULL)
+
+        # convert vg+gam to maf
+        subprocess.check_call(['vg', 'index', self.tiny_vg, '-j', 'tiny.dist'])
+        out_maf_name = 'ins32.maf'
+        with open(out_maf_name, 'w') as out_maf_file:
+            subprocess.check_call(['vg2maf', self.tiny_vg, '-d', 'tiny.dist', '-r', 'x', '-g', snp_gam_name], stdout=out_maf_file)
+
+        lines_by_offset = {}
+        with open(out_maf_name, 'r') as out_maf_file:
+            for line in out_maf_file:
+                if line.startswith('s'):
+                    toks = line.rstrip().split()
+                    offset = int(toks[2])
+                    if offset not in lines_by_offset:
+                        lines_by_offset[offset] = []
+                    lines_by_offset[offset].append(toks)
+
+        # there are 10 nodes in the graph
+        self.assertEqual(len(lines_by_offset), 10)
+
+        # there should be 2 lines for node 1
+        self.assertEqual(len(lines_by_offset[0]), 4)
+
+        self.assertEqual(['s', 'x', '0', '8', '+', '50', 'CAA--------ATA--AG'], lines_by_offset[0][0])
+        self.assertEqual(['s', 'ins1', '0', '9', '+', '9', '--AGGG-----ATA--AG'], lines_by_offset[0][1])
+        self.assertEqual(['s', 'ins2', '0', '12', '+', '12', 'CAA---CC---ATATGAG'], lines_by_offset[0][2])
+        self.assertEqual(['s', 'ins3', '0', '8', '+', '8', 'CAA-----GGGAT-----'], lines_by_offset[0][3])
         
     def test_real_chunks(self):
         """
         these are from a real hprc file that caused crashes in first version of vg2maf
         mostly checking that they don't crash -- i have not manually verified the output
         """
-        for chunk_number in [30, 64, 172]:
+        for chunk_number in [30, 64, 172, 'node_2363591']:
             out_maf_filename = 'chunk_{}.out.maf'.format(chunk_number)
             true_maf_filename = 'chunk_{}.truth.maf'.format(chunk_number)
             with open(out_maf_filename, 'w') as out_maf_file:
                 subprocess.check_call(['vg2maf', 'chunk_{}.vg'.format(chunk_number), '-d',
-                                       'chunk_{}.dist'.format(chunk_number), '-r', 'GRCh38'], stdout=out_maf_file)
+                                       'chunk_{}.dist'.format(chunk_number), '-r', 'GRCh38',
+                                       '-g', 'chunk_{}.sort.gam'.format(chunk_number)], stdout=out_maf_file)
             subprocess.check_call(['diff', out_maf_filename, true_maf_filename])
 
             

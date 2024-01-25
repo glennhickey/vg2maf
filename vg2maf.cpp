@@ -149,6 +149,14 @@ unordered_map<int64_t, unordered_map<int64_t, string>> align_insertion_index(con
         assert(cur_offset == 0 && cur_row == rows.size());
     }
 
+#ifdef debug
+    for (auto xx : out_idx) {
+        for (auto yy : xx.second) {
+            cerr  << "INS[" << xx.first << "][" << yy.first <<"]=" << yy.second << endl;
+        }
+    }
+#endif
+
     return out_idx;
 }
 
@@ -305,6 +313,16 @@ Alignment* convert_node(PathPositionHandleGraph& graph, const vector<vg::Alignme
             cerr << "adding " << mappings.size() << " mappings for node " << node_id << endl;
         }
 #endif
+        // add in insertion gaps
+        auto insert_insertion_gaps = [&](int64_t node_offset, int64_t row,
+                                         int64_t& column, char* bases) {
+            if (!ins_alignments.at(node_offset).count(row)) {
+                int64_t gaps = ins_alignments.at(node_offset).begin()->second.length();
+                for (int64_t i = 0; i < gaps; ++i) {
+                    bases[column++] = '-';
+                }
+            }
+        };
 
         // copy our mappings into the alignment rows
         for (int64_t i = 0; i < mappings.size(); ++i) {
@@ -315,20 +333,26 @@ Alignment* convert_node(PathPositionHandleGraph& graph, const vector<vg::Alignme
             row->sequence_length = sequence_lengths[i];
             row->start = start_positions[i];
             row->strand = mapping_reversed[i] ? 0 : 1;
-            row->bases = (char*)st_calloc(alignment->column_number, sizeof(char));
+            row->bases = (char*)st_calloc(alignment->column_number + 1, sizeof(char));
             // add the opening gaps
             int64_t col = 0;
             int64_t node_offset = 0;
-            for (; col < mappings[i].position().offset(); ++col) {
+            for (; node_offset < mappings[i].position().offset(); ++col, ++node_offset) {
+                if (ins_alignments.count(node_offset)) {
+                    insert_insertion_gaps(node_offset, i, col, row->bases);
+                }
                 row->bases[col] = '-';
             }
-            node_offset = col;
+            
             // add in the sequence
             for (int64_t j = 0; j < mappings[i].edit_size(); ++j) {
                 const vg::Edit& edit = mappings[i].edit(j);
                 if (edit.from_length() == edit.to_length()) {
                     //match
                     for (int64_t k = 0; k < edit.from_length(); ++k) {
+                        if (ins_alignments.count(node_offset)) {
+                            insert_insertion_gaps(node_offset, i, col, row->bases);
+                        }
                         if (!edit.sequence().empty()) {
                             row->bases[col] = edit.sequence()[k];                            
                         } else {
@@ -341,6 +365,9 @@ Alignment* convert_node(PathPositionHandleGraph& graph, const vector<vg::Alignme
                 } else if (edit.to_length() == 0 && edit.from_length() > 0) {
                     // delete
                     for (int64_t k = 0; k < edit.from_length(); ++k) {
+                        if (ins_alignments.count(node_offset)) {
+                            insert_insertion_gaps(node_offset, i, col, row->bases);
+                        }                        
                         row->bases[col++] = '-';
                         ++node_offset;
                     }
@@ -368,9 +395,14 @@ Alignment* convert_node(PathPositionHandleGraph& graph, const vector<vg::Alignme
             }
 
             // add the closing gaps
-            for (int64_t j = node_offset; j < node_sequence.length(); ++j) {
-                row->bases[j] = '-';
+            for (; node_offset < node_sequence.length(); ++node_offset) {
+                if (ins_alignments.count(node_offset)) {
+                    insert_insertion_gaps(node_offset, i, col, row->bases);
+                }                
+                row->bases[col++] = '-';
             }
+            assert(col == alignment->column_number);
+            row->bases[col] = '\0';
             
             if (row->strand == 0) {
                 row->start = row->sequence_length - row->start - row->length;
