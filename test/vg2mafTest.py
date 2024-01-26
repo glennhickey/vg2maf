@@ -640,10 +640,10 @@ class Vg2mafTest(unittest.TestCase):
         self.assertEqual(['s', 'x', '0', '8', '+', '50', 'CAA---ATAAG'], lines_by_offset[0][0])
         self.assertEqual(['s', 'ins', '0', '11', '+', '11', 'CAAGGGATAAG'],lines_by_offset[0][1])
 
-        # now convert to taf
-        out_taf_name = 'insq.taf'
-        with open(out_taf_name, 'w') as out_taf_file:
-            subprocess.check_call(['vg2maf', self.tiny_vg, '-d', 'tiny.dist', '-r', 'x', '-g', snp_gam_name, '-a'], stdout=out_taf_file)
+        # now convert to maf
+        out_maf_name = 'insq.maf'
+        with open(out_maf_name, 'w') as out_maf_file:
+            subprocess.check_call(['vg2maf', self.tiny_vg, '-d', 'tiny.dist', '-r', 'x', '-g', snp_gam_name], stdout=out_maf_file)
 
         true_qualities = [60, 21, 20, 45, 0, 1, 23 ,60, 58, 40, 75]
         true_maf_qualities = [9 if x >= 45 else int(x/5) for x in true_qualities]

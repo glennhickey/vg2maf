@@ -441,6 +441,9 @@ Alignment* convert_node(PathPositionHandleGraph& graph, const vector<vg::Alignme
     cerr << "alignment rows after adding mappings: " << rows.size() << endl;
 #endif
 
+    string ref_path_name = graph.get_path_name(ref_path_handle);
+    Alignment_Row* ref_row = NULL;
+    unordered_set<const Alignment_Row*> nonref_rows;
     for (step_handle_t& step_handle : steps) {
         Alignment_Row* row = (Alignment_Row*)st_calloc(1, sizeof(Alignment_Row));
         path_handle_t step_path_handle = graph.get_path_handle_of_step(step_handle);
@@ -448,6 +451,12 @@ Alignment* convert_node(PathPositionHandleGraph& graph, const vector<vg::Alignme
         row->start = graph.get_position_of_step(step_handle);
         row->length = node_sequence.length();
         row->sequence_length = graph.get_path_length(step_path_handle);
+        if (!ref_row && strcmp(row->sequence_name, ref_path_name.c_str()) == 0) {
+            ref_row = row;
+        } else {
+            nonref_rows.insert(row);
+        }
+            
         // todo: check this strand logic
         handle_t handle_of_step = graph.get_handle_of_step(step_handle);
         row->strand = graph.get_is_reverse(handle_of_step) ? 0 : 1;
@@ -487,27 +496,26 @@ Alignment* convert_node(PathPositionHandleGraph& graph, const vector<vg::Alignme
 
     // sort the rows
     std::sort(rows.begin(), rows.end(), [&](const Alignment_Row* row1, const Alignment_Row* row2) {
+        bool nr1 = nonref_rows.count(row1);
+        bool nr2 = nonref_rows.count(row2);
+        if (nr1 != nr2) {
+            // make sure paths come before reads
+            return nr1;
+        }
         int cmp = strcmp(row1->sequence_name, row2->sequence_name);
         return cmp < 0 || (cmp == 0 && row1->start < row2->start);
     });
 
     // put them in the alignment, starting with ref path
-    alignment->row = NULL;    
-    string ref_path_name = graph.get_path_name(ref_path_handle);
-    for (Alignment_Row* row : rows) {
-        if (strcmp(row->sequence_name, ref_path_name.c_str()) == 0) {
-            alignment->row = row;
-            break;
-        }
-    }
-
+    alignment->row = ref_row;
+    
     assert(alignment->row_number == rows.size());
     Alignment_Row* cur_row = alignment->row;
     for (Alignment_Row* row : rows) {
         if (cur_row == NULL) {
             alignment->row = row;
             cur_row = row;
-        } else if (row != alignment->row) {
+        } else if (row != ref_row) {
             cur_row->n_row = row;
             cur_row = row;            
         }
