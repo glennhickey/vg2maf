@@ -704,7 +704,11 @@ void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_
     LW *output = LW_construct(stdout, false);
 
     Tag* tag = tag_construct((char*)"version", (char*)"1", NULL);
-    maf_write_header(tag, output);
+    if (taf_output) {
+        taf_write_header(tag, output);
+    } else {
+        maf_write_header(tag, output);
+    }
 
     vector<net_handle_t> chain_childs;
     distance_index.for_each_child(chain, [&](net_handle_t net_handle) {
