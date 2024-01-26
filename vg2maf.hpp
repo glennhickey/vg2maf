@@ -60,3 +60,10 @@ void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_
 // todo: this function probably needs some work to effectively put complex regions through taffy norm
 void traverse_snarl(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_index,
                     net_handle_t snarl, path_handle_t ref_path_handle, vector<handle_t>& out_handles);
+
+// use ascii phred inside TAF (as it's a text-based format)
+// from https://en.wikipedia.org/wiki/FASTQ_format
+// The byte representing quality runs from 0x21 (lowest quality; '!' in ASCII) to 0x7e (highest quality; '~' in ASCII). 
+inline unsigned char phred_byte_to_ascii(unsigned char b) {
+    return b >= 0x7e - 0x21 ? 0x7e : b + 0x21;
+}

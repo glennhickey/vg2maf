@@ -343,8 +343,8 @@ Alignment* convert_node(PathPositionHandleGraph& graph, const vector<vg::Alignme
             row->start = start_positions[i];
             row->strand = mapping_reversed[i] ? 0 : 1;
             row->bases = (char*)st_calloc(alignment->column_number + 1, sizeof(char));
-            // todo: fix default character
-            base_qualities[row].resize(alignment->column_number, '0');
+            // default to maximum phred character
+            base_qualities[row].resize(alignment->column_number, (char)0x7e);
             string& row_qualities = base_qualities[row];
             // add the opening gaps
             int64_t col = 0;
@@ -371,7 +371,7 @@ Alignment* convert_node(PathPositionHandleGraph& graph, const vector<vg::Alignme
                             row->bases[col] = node_sequence[node_offset];
                         }
                         if (!aln.quality().empty()) {
-                            row_qualities[col] = aln.quality()[row->length];
+                            row_qualities[col] = (char)aln.quality()[row->length];
                         }
                         ++col;
                         ++node_offset;
@@ -386,16 +386,15 @@ Alignment* convert_node(PathPositionHandleGraph& graph, const vector<vg::Alignme
                         row->bases[col++] = '-';
                         ++node_offset;
                     }
-                    
                 } else {
                     // insert
                     assert(edit.from_length() < edit.to_length());
                     // add the common part [todo: this should probably not be aligned automaticall going forward]
                     for (int64_t k = 0; k < edit.from_length(); ++k) {
-                        row->bases[col++] = edit.sequence()[k];
                         if (!aln.quality().empty()) {
-                            row_qualities[col] = aln.quality()[row->length];
-                        }                        
+                            row_qualities[col] = (char)aln.quality()[row->length];
+                        }
+                        row->bases[col++] = edit.sequence()[k];
                         ++node_offset;
                         ++row->length;
                     }
@@ -404,13 +403,13 @@ Alignment* convert_node(PathPositionHandleGraph& graph, const vector<vg::Alignme
                     // find the row
                     const string& row_string = row_alignments.at(i);
                     for (int64_t k = 0; k < row_string.length(); ++k) {
-                        row->bases[col++] = row_string[k];
                         if (row_string[k] != '-') {
                             if (!aln.quality().empty()) {
-                                row_qualities[col] = aln.quality()[row->length];
+                                row_qualities[col] = (char)aln.quality()[row->length];
                             }
                             ++row->length;
                         }
+                        row->bases[col++] = row_string[k];
                     }
                 }
             }
@@ -523,13 +522,13 @@ Alignment* convert_node(PathPositionHandleGraph& graph, const vector<vg::Alignme
         for (int64_t i = 0; i < alignment->column_number; ++i) {
             column_quality_strings[i].resize(alignment->row_number);
         }
-        string empty_quality(alignment->column_number, '0'); // todo: default value
+        string empty_quality(alignment->column_number, char(0x7e)); // default to *max* ascii phred quality
         cur_row = alignment->row;
         for (int64_t i = 0; cur_row; cur_row = cur_row->n_row, ++i) {
             string& row_quals = base_qualities.count(cur_row) ? base_qualities[cur_row] : empty_quality;
             assert(row_quals.length() == alignment->column_number);
             for (int64_t j = 0; j < row_quals.length(); ++j) {
-                column_quality_strings[j][i] = row_quals[j];
+                column_quality_strings[j][i] = (char)phred_byte_to_ascii(row_quals[j]);
             }                
         }
         // copy the column qualities into tags

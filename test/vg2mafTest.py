@@ -596,9 +596,16 @@ class Vg2mafTest(unittest.TestCase):
         # Manually make this alignment
         # x CAA---ATAAG
         # y CAAGGGATAAG
+        #
+        # these are the true qualities, as converted to a byte array for vg/gam:
+        #
+        # qualities = [60, 21, 20, 45, 0, 1, 23 ,60, 58, 40, 75]
+        # base64.b64encode(bytearray(qualities))
+        # b'PBUULQABFzw6KEs='
         snp_gam_json_name = 'insq.gam.json'
+        
         with open(snp_gam_json_name, 'w') as snp_gam_json_file:
-            snp_gam_json_file.write('{"name": "ins", "path": {"mapping": [{"position": {"node_id": "1", "offset": "0"}, "edit": [{"from_length": 3, "to_length": 3}, {"from_length": 0, "to_length": 3, "sequence": "GGG"}, {"from_length": 5, "to_length": 5}]}]}, "sequence": "CTTATCCCTTG", "quality": "MTIzNDU2Nzg5YQ=="}\n')
+            snp_gam_json_file.write('{"name": "ins", "path": {"mapping": [{"position": {"node_id": "1", "offset": "0"}, "edit": [{"from_length": 3, "to_length": 3}, {"from_length": 0, "to_length": 3, "sequence": "GGG"}, {"from_length": 5, "to_length": 5}]}]}, "sequence": "CAAGGGATAAG", "quality": "PBUULQABFzw6KEs="}\n')
         # convert to gam and index it
         snp_gam_name = 'insq.gam'
         with open(snp_gam_name, 'w') as snp_gam_file:
@@ -629,6 +636,29 @@ class Vg2mafTest(unittest.TestCase):
 
         self.assertEqual(['s', 'x', '0', '8', '+', '50', 'CAA---ATAAG'], lines_by_offset[0][0])
         self.assertEqual(['s', 'ins', '0', '11', '+', '11', 'CAAGGGATAAG'],lines_by_offset[0][1])
+
+        # now convert to taf
+        out_taf_name = 'insq.taf'
+        with open(out_taf_name, 'w') as out_taf_file:
+            subprocess.check_call(['vg2maf', self.tiny_vg, '-d', 'tiny.dist', '-r', 'x', '-g', snp_gam_name, '-a'], stdout=out_taf_file)
+
+        true_qualities = [60, 21, 20, 45, 0, 1, 23 ,60, 58, 40, 75]
+        col_quals = []        
+        with open(out_taf_name, 'r') as out_taf_file:
+            for line in out_taf_file:
+                qpos = line.find('q:')
+                if qpos >= 0:
+                    quals= line.rstrip()[qpos+2:]
+                    col_quals.append(quals)
+
+        self.assertEqual(len(col_quals), len(true_qualities))
+        for true_qual, col_qual in zip(true_qualities, col_quals):
+            self.assertEqual(len(col_qual), 2)
+            # we default to maxqual for embedded path and gaps
+            self.assertEqual(col_qual[0], '~')
+            # we convert back from ascii and compare
+            self.assertEqual(ord(col_qual[1]) - 33, true_qual)
+        
         
     def test_real_chunks(self):
         """
