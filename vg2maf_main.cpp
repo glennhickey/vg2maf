@@ -184,6 +184,15 @@ int main(int argc, char** argv) {
         }
     }
 
+    LW *output = LW_construct(stdout, false);
+
+    Tag* tag = tag_construct((char*)"version", (char*)"1", NULL);
+    if (taf_output) {
+        taf_write_header(tag, output);
+    } else {
+        maf_write_header(tag, output);
+    }
+
     // iterate the top-level chains
     int64_t i = 0;
     int64_t num_chains = 0;
@@ -197,9 +206,11 @@ int main(int argc, char** argv) {
     distance_index.for_each_child(distance_index.get_root(), [&](net_handle_t net_handle) {
         if (distance_index.is_chain(net_handle)) {
             convert_chain(*graph, distance_index, gam_info_ptrs, net_handle, ref_path_prefix, progress,
-                          make_pair(++i, num_chains), taf_output);
+                          make_pair(++i, num_chains), taf_output, output);
         }        
     });
+
+    LW_destruct(output, false);
 
     if (progress) {
         cerr << "[vg2maf]: Finished" << endl;

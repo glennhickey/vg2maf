@@ -573,13 +573,19 @@ void convert_node_range(PathPositionHandleGraph& graph, GAMInfo* gam_info, const
 }
 
 void traverse_snarl(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_index,
-                    net_handle_t snarl, path_handle_t ref_path_handle, vector<handle_t>& out_handles) {
+                    net_handle_t snarl, path_handle_t ref_path_handle,
+                    bool ref_path_reversed, vector<handle_t>& out_handles) {
 
     net_handle_t start_bound = distance_index.get_bound(snarl, false, true);
     net_handle_t end_bound = distance_index.get_bound(snarl, true, false);
 
     handle_t start_handle = distance_index.get_handle(start_bound, &graph);
     handle_t end_handle = distance_index.get_handle(end_bound, &graph);
+    if (ref_path_reversed) {
+        std::swap(start_handle, end_handle);
+        start_handle = graph.flip(start_handle);
+        end_handle = graph.flip(end_handle);
+    }
 
 #ifdef debug
     cerr << "snarl goes from " << graph.get_id(start_handle) << ":" << graph.get_is_reverse(start_handle) << " to "
@@ -629,7 +635,7 @@ void traverse_snarl(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance
 
 void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_index, vector<GAMInfo*>& gam_info,
                    net_handle_t chain, const string& ref_path, bool progress, const pair<int64_t, int64_t>& chain_idx,
-                   bool taf_output) {
+                   bool taf_output, LW* output) {
 
     net_handle_t start_bound = distance_index.get_bound(chain, false, true);
     net_handle_t end_bound = distance_index.get_bound(chain, true, false);
@@ -701,15 +707,6 @@ void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_
         chain = distance_index.flip(chain);
     }
 
-    LW *output = LW_construct(stdout, false);
-
-    Tag* tag = tag_construct((char*)"version", (char*)"1", NULL);
-    if (taf_output) {
-        taf_write_header(tag, output);
-    } else {
-        maf_write_header(tag, output);
-    }
-
     vector<net_handle_t> chain_childs;
     distance_index.for_each_child(chain, [&](net_handle_t net_handle) {
         chain_childs.push_back(net_handle);
@@ -720,18 +717,16 @@ void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_
 
     vector<handle_t> node_buffer;
     vector<Alignment*> alignment_buffer;
+    Alignment* prev_alignment = nullptr;
     
     // convert the chain, one node/snarl at a time
     for (int64_t i = 0; i < chain_childs.size(); ++i) {
         net_handle_t net_handle = chain_childs[i];
-        if (ref_path_reversed) {
-            net_handle = distance_index.flip(net_handle);
-        }
         // queue up all child nodes in order we want to convert
         if (distance_index.is_node(net_handle)) {
             node_buffer.push_back(distance_index.get_handle(net_handle, &graph));
         } else if (distance_index.is_snarl(net_handle)) {
-            traverse_snarl(graph, distance_index, net_handle, ref_path_handle, node_buffer);
+            traverse_snarl(graph, distance_index, net_handle, ref_path_handle, ref_path_reversed, node_buffer);
         } else if (distance_index.is_chain(net_handle)) {
             cerr << "TODO: CHILD CHAIN" << endl;
         } else {
@@ -777,11 +772,14 @@ void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_
             for (int64_t j = 0; j < alignment_buffer.size(); ++j) {
                 if (alignment_buffer[j]) {
                     if (taf_output) {
-                        taf_write_block(NULL, alignment_buffer[j], false, 10000, output);
+                        taf_write_block(prev_alignment, alignment_buffer[j], false, 10000, output);
                     } else {
                         maf_write_block(alignment_buffer[j], output);
                     }
-                    alignment_destruct(alignment_buffer[j], true);
+                    if (prev_alignment) {
+                        alignment_destruct(prev_alignment, true);
+                    }
+                    prev_alignment = alignment_buffer[j];
                 }
             }
             
@@ -789,8 +787,9 @@ void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_
         }
     }
     assert(node_buffer.empty());
-
-    LW_destruct(output, false);
+    if (prev_alignment) {
+        alignment_destruct(prev_alignment, true);
+    }
 }
 
 unique_ptr<PathHandleGraph> load_graph(istream& graph_stream) {
