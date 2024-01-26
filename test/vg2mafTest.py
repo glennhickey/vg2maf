@@ -619,6 +619,7 @@ class Vg2mafTest(unittest.TestCase):
             subprocess.check_call(['vg2maf', self.tiny_vg, '-d', 'tiny.dist', '-r', 'x', '-g', snp_gam_name], stdout=out_maf_file)
 
         lines_by_offset = {}
+        q_lines = []
         with open(out_maf_name, 'r') as out_maf_file:
             for line in out_maf_file:
                 if line.startswith('s'):
@@ -627,6 +628,8 @@ class Vg2mafTest(unittest.TestCase):
                     if offset not in lines_by_offset:
                         lines_by_offset[offset] = []
                     lines_by_offset[offset].append(toks)
+                elif line.startswith('q'):
+                    q_lines.append(line.rstrip())
 
         # there are 10 nodes in the graph
         self.assertEqual(len(lines_by_offset), 10)
@@ -643,21 +646,16 @@ class Vg2mafTest(unittest.TestCase):
             subprocess.check_call(['vg2maf', self.tiny_vg, '-d', 'tiny.dist', '-r', 'x', '-g', snp_gam_name, '-a'], stdout=out_taf_file)
 
         true_qualities = [60, 21, 20, 45, 0, 1, 23 ,60, 58, 40, 75]
-        col_quals = []        
-        with open(out_taf_name, 'r') as out_taf_file:
-            for line in out_taf_file:
-                qpos = line.find('q:')
-                if qpos >= 0:
-                    quals= line.rstrip()[qpos+2:]
-                    col_quals.append(quals)
+        true_maf_qualities = [9 if x >= 45 else int(x/5) for x in true_qualities]
 
-        self.assertEqual(len(col_quals), len(true_qualities))
-        for true_qual, col_qual in zip(true_qualities, col_quals):
-            self.assertEqual(len(col_qual), 2)
-            # we default to maxqual for embedded path and gaps
-            self.assertEqual(col_qual[0], '~')
-            # we convert back from ascii and compare
-            self.assertEqual(ord(col_qual[1]) - 33, true_qual)
+        self.assertEqual(len(q_lines), 2)
+        _, q_name, q_vals = q_lines[0].split()
+        self.assertEqual(q_name, 'x')
+        self.assertEqual(q_vals, '99999999')
+
+        _, q_name2, q_vals2 = q_lines[1].split()
+        self.assertEqual(q_name2, 'ins')
+        self.assertEqual(q_vals2, ''.join([str(x) for x in true_maf_qualities]))
         
         
     def test_real_chunks(self):

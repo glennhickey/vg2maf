@@ -343,9 +343,12 @@ Alignment* convert_node(PathPositionHandleGraph& graph, const vector<vg::Alignme
             row->start = start_positions[i];
             row->strand = mapping_reversed[i] ? 0 : 1;
             row->bases = (char*)st_calloc(alignment->column_number + 1, sizeof(char));
-            // default to maximum phred character
-            base_qualities[row].resize(alignment->column_number, (char)0x7e);
-            string& row_qualities = base_qualities[row];
+            string* row_qualities = nullptr;
+            if (!aln.quality().empty()) {
+                // default to maximum phred character
+                base_qualities[row].resize(alignment->column_number, (char)0x7e);
+                row_qualities = &base_qualities[row];
+            }
             // add the opening gaps
             int64_t col = 0;
             int64_t node_offset = 0;
@@ -371,7 +374,7 @@ Alignment* convert_node(PathPositionHandleGraph& graph, const vector<vg::Alignme
                             row->bases[col] = node_sequence[node_offset];
                         }
                         if (!aln.quality().empty()) {
-                            row_qualities[col] = (char)aln.quality()[row->length];
+                            (*row_qualities)[col] = (char)aln.quality()[row->length];
                         }
                         ++col;
                         ++node_offset;
@@ -392,7 +395,7 @@ Alignment* convert_node(PathPositionHandleGraph& graph, const vector<vg::Alignme
                     // add the common part [todo: this should probably not be aligned automaticall going forward]
                     for (int64_t k = 0; k < edit.from_length(); ++k) {
                         if (!aln.quality().empty()) {
-                            row_qualities[col] = (char)aln.quality()[row->length];
+                            (*row_qualities)[col] = (char)aln.quality()[row->length];
                         }
                         row->bases[col++] = edit.sequence()[k];
                         ++node_offset;
@@ -405,7 +408,7 @@ Alignment* convert_node(PathPositionHandleGraph& graph, const vector<vg::Alignme
                     for (int64_t k = 0; k < row_string.length(); ++k) {
                         if (row_string[k] != '-') {
                             if (!aln.quality().empty()) {
-                                row_qualities[col] = (char)aln.quality()[row->length];
+                                (*row_qualities)[col] = (char)aln.quality()[row->length];
                             }
                             ++row->length;
                         }
@@ -533,7 +536,8 @@ Alignment* convert_node(PathPositionHandleGraph& graph, const vector<vg::Alignme
         }
         // copy the column qualities into tags
         for (int64_t i = 0; i < alignment->column_number; ++i) {
-            alignment->column_tags[i] = tag_construct((char*)"q", (char*)column_quality_strings[i].c_str(), NULL);
+            alignment->column_tags[i] = tag_construct((char*)TAF_BASE_QUALITY_TAG_KEY,
+                                                      (char*)column_quality_strings[i].c_str(), NULL);
         }        
     }
 
