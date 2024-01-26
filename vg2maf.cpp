@@ -23,9 +23,9 @@ extern "C" {
 }
 
 // number of nodes to scan before sending to parallel batch
-static const int64_t node_buffer_size = 250000;
+static const int64_t node_buffer_size = 25000;
 // number of bases for each gam index query
-static const int64_t gam_idx_query_bp = 10000;
+static const int64_t gam_idx_query_bp = 5000;
 // biggest hole allowable in id range passed to gam index
 static const int64_t gam_idx_max_gap = 2;
 // maximum read depth (to prevent memory issues)
