@@ -42,7 +42,6 @@ void help(char** argv) {
        << "    -d, --dist FILE           Distance index from vg index -j" << endl
        << "    -r, --ref-prefix NAME     Prefix of reference path(s) [REQUIRED]" << endl
        << "    -g, --gam FILE            Sorted GAM file. Must have .gai index. Make both with \"vg gamsort x.gam -i x.sort.gam.gai > x.sort.gam\"" << endl
-       << "    -a, --taf                 Outupt TAF instead of MAF (for now, only way to see base qualities)" << endl
        << "    -t, --threads N           Number of threads to use [default: all available]" << endl      
        << endl;
 }    
@@ -64,14 +63,13 @@ int main(int argc, char** argv) {
             {"ref-path", required_argument, 0, 'r'},
             {"dist", required_argument, 0, 'd'},
             {"gam", required_argument, 0, 'g'},
-            {"taf", no_argument, 0, 'a'},
             {"threads", required_argument, 0, 't'},            
             {0, 0, 0, 0}
         };
 
         int option_index = 0;
 
-        c = getopt_long (argc, argv, "hpr:d:g:at:",
+        c = getopt_long (argc, argv, "hpr:d:g:t:",
                          long_options, &option_index);
 
         // Detect the end of the options.
@@ -91,9 +89,6 @@ int main(int argc, char** argv) {
             break;
         case 'g':
             gam_filename = optarg;
-            break;
-        case 'a':
-            taf_output = true;
             break;
         case 't':
         {
