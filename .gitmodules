@@ -10,3 +10,6 @@
 [submodule "deps/htslib"]
 	path = deps/htslib
 	url = https://github.com/samtools/htslib.git
+[submodule "deps/abPOA"]
+	path = deps/abPOA
+	url = https://github.com/yangao07/abPOA.git

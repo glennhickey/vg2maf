@@ -9,6 +9,7 @@ extern "C" {
 #include "taf.h"
 #include "sonLib.h"
 }
+#include "abpoa.h"
 
 using namespace std;
 using namespace handlegraph;
@@ -32,6 +33,10 @@ unordered_map<int64_t, unordered_map<int64_t, string>> get_insertion_index(const
 // todo: run through multiple aligner like abpoa
 unordered_map<int64_t, unordered_map<int64_t, string>> align_insertion_index(const unordered_map<int64_t, unordered_map<int64_t, string>>& in_idx);
 
+// actually align the insertion index (new default). above function kept around for tests for now. 
+unordered_map<int64_t, unordered_map<int64_t, string>> abpoa_align_insertion_index(
+    abpoa_para_t* abpoa_params, const unordered_map<int64_t, unordered_map<int64_t, string>>& in_idx);
+
 // scan through a given path, returning the list of nodes that traverses the two handles
 // todo: there's a lot of code in vg for this, perhaps reuse?
 vector<handle_t> get_ref_traversal(PathPositionHandleGraph& graph, path_handle_t ref_path_handle,
@@ -40,7 +45,7 @@ vector<handle_t> get_ref_traversal(PathPositionHandleGraph& graph, path_handle_t
 // convert a node to maf
 // alignment object must be freed with alignmenet_destruct(alignment, true)
 Alignment* convert_node(PathPositionHandleGraph& graph, const vector<vg::Alignment>& gam_alignments, handle_t handle,
-                        path_handle_t ref_path_handle);
+                        path_handle_t ref_path_handle, abpoa_para_t* abpoa_params);
 
 // converts a batch of nodes to maf
 // this is used in attempt to aggregate gam index queries into ranges.
@@ -48,13 +53,13 @@ Alignment* convert_node(PathPositionHandleGraph& graph, const vector<vg::Alignme
 // sorted_nodes stores offsets in node_buffer and out_alignment_buffer
 void convert_node_range(PathPositionHandleGraph& graph, GAMInfo* gam_info, const vector<handle_t>& node_buffer,
                         const vector<int64_t>& sorted_nodes, int64_t range_start, int64_t range_end,
-                        path_handle_t ref_path_handle, vector<Alignment*>& out_alignment_buffer);
+                        path_handle_t ref_path_handle, abpoa_para_t* abpoa_params, vector<Alignment*>& out_alignment_buffer);
 
 
 // convert a chain to maf, by scanning its children in order
 void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_index, vector<GAMInfo*>& gam_info,
                    net_handle_t chain, const string& ref_path, bool progress, const pair<int64_t, int64_t>& chain_idx,
-                   bool taf_output, LW* output);
+                   abpoa_para_t* abpoa_params, bool taf_output, LW* output);
 
 // return the handles inside a snarl in the order that we want them in the maf
 // todo: this function probably needs some work to effectively put complex regions through taffy norm
@@ -62,9 +67,13 @@ void traverse_snarl(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance
                     net_handle_t snarl, path_handle_t ref_path_handle,
                     bool ref_path_reversed, vector<handle_t>& out_handles);
 
+// make an abpoa parameters object, using defautls from cactus
+abpoa_para_t* construct_abpoa_params();
+
 // use ascii phred inside TAF (as it's a text-based format)
 // from https://en.wikipedia.org/wiki/FASTQ_format
 // The byte representing quality runs from 0x21 (lowest quality; '!' in ASCII) to 0x7e (highest quality; '~' in ASCII). 
 inline unsigned char phred_byte_to_ascii(unsigned char b) {
     return b >= 0x7e - 0x21 ? 0x7e : b + 0x21;
 }
+

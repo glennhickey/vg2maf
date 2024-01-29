@@ -40,7 +40,7 @@ CXX ?= g++
 CXXFLAGS := -O3
 CXXFLAGS += -Werror=return-type -std=c++14 -ggdb -g -MMD -MP $(PARALLEL_FLAGS) $(CXXFLAGS)
 
-CXXFLAGS += -I deps/taffy/taffy/submodules/sonLib/C/inc/ -I deps/taffy/taffy/inc -I deps/libbdsg-easy/include -I deps/libvgio/include/ 
+CXXFLAGS += -I deps/taffy/taffy/submodules/sonLib/C/inc/ -I deps/taffy/taffy/inc -I deps/libbdsg-easy/include -I deps/libvgio/include/ -I deps/abPOA/include
 
 static:
 	CFLAGS="$${CFLAGS} -static" \
@@ -60,16 +60,20 @@ cleanFast :
 
 clean :
 	rm -f vg2maf *.o deps/htslib/libhts.a deps/htslib/configure deps/taffy/lib/libstTaf.a ${libbdsgPath}/lib/libbdsg.a deps/libvgio/build/libvgio.a
-	cd deps/libbdsg-easy && make clean
-	cd deps/taffy && make clean
-	cd deps/libvgio && make clean
-	cd deps/htslib && rm configure && make clean
+	cd deps/libbdsg-easy && ${MAKE} clean
+	cd deps/taffy && ${MAKE} clean
+	cd deps/libvgio && ${MAKE} clean
+	cd deps/htslib && rm configure && ${MAKE} clean
+	cd deps/abPOA && ${MAKE} clean
 
 vg2maf_main.o : vg2maf_main.cpp vg2maf.hpp stream_index.hpp scanner.hpp vg_types.hpp deps/libvgio/build/libvgio.a ${libbdsgPath}/lib/libbdsg.a deps/taffy/lib/libstTaf.a 
 	${CXX} ${CXXFLAGS} -I . vg2maf_main.cpp -c
 
 vg2maf.o : vg2maf.cpp vg2maf.hpp stream_index.hpp scanner.hpp vg_types.hpp deps/libvgio/build/libvgio.a ${libbdsgPath}/lib/libbdsg.a deps/taffy/lib/libstTaf.a 
 	${CXX} ${CXXFLAGS} -I . vg2maf.cpp -c
+
+insertions.o : insertions.cpp vg2maf.hpp vg_types.hpp deps/libvgio/build/libvgio.a ${libbdsgPath}/lib/libbdsg.a deps/taffy/lib/libstTaf.a 
+	${CXX} ${CXXFLAGS} -I . insertions.cpp -c
 
 scanner.o : scanner.cpp scanner.hpp vg_types.hpp scanner.hpp deps/libvgio/build/libvgio.a ${libbdsgPath}/lib/libbdsg.a deps/taffy/lib/libstTaf.a 
 	${CXX} ${CXXFLAGS} -I . scanner.cpp -c
@@ -93,8 +97,11 @@ ${libbdsgPath}/lib/libbdsg.a:
 deps/libvgio/build/libvgio.a:
 	cd deps/libvgio && rm -rf build && mkdir build && cd build && cmake .. && ${MAKE} && cp vg.pb.h ../include/vg
 
-vg2maf : vg2maf_main.o vg2maf.o scanner.o stream_index.o deps/taffy/lib/libstTaf.a ${libbdsgPath}/lib/libbdsg.a deps/libvgio/build/libvgio.a deps/htslib/libhts.a
-	${CXX} ${CXXFLAGS} vg2maf_main.o vg2maf.o stream_index.o scanner.o deps/taffy/lib/libstTaf.a deps/taffy/lib/libsonLib.a ${libbdsgLibs} -ljansson deps/libvgio/build/libvgio.a -lprotobuf deps/htslib/libhts.a -lcurl -lm -lz -llzma -lbz2 -ldeflate -fopenmp -pthread -o vg2maf
+deps/abPOA/lib/libabpoa.a:
+	cd deps/abPOA && ${MAKE}
+
+vg2maf : vg2maf_main.o vg2maf.o insertions.o scanner.o stream_index.o deps/taffy/lib/libstTaf.a ${libbdsgPath}/lib/libbdsg.a deps/libvgio/build/libvgio.a deps/htslib/libhts.a deps/abPOA/lib/libabpoa.a
+	${CXX} ${CXXFLAGS} vg2maf_main.o vg2maf.o insertions.o stream_index.o scanner.o deps/taffy/lib/libstTaf.a deps/taffy/lib/libsonLib.a ${libbdsgLibs} -ljansson deps/libvgio/build/libvgio.a deps/abPOA/lib/libabpoa.a -lprotobuf deps/htslib/libhts.a -lcurl -lm -lz -llzma -lbz2 -ldeflate -fopenmp -pthread -o vg2maf
 
 all : vg2maf
 

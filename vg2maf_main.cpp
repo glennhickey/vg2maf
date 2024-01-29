@@ -42,6 +42,7 @@ void help(char** argv) {
        << "    -d, --dist FILE           Distance index from vg index -j" << endl
        << "    -r, --ref-prefix NAME     Prefix of reference path(s) [REQUIRED]" << endl
        << "    -g, --gam FILE            Sorted GAM file. Must have .gai index. Make both with \"vg gamsort x.gam -i x.sort.gam.gai > x.sort.gam\"" << endl
+       << "    -u, --unaligned-ins       Leave GAM insertions unaligned\n"
        << "    -t, --threads N           Number of threads to use [default: all available]" << endl      
        << endl;
 }    
@@ -51,6 +52,7 @@ int main(int argc, char** argv) {
     string ref_path_prefix;
     string distance_index_filename;
     string gam_filename;
+    bool align_insertions = true;
     bool taf_output = false;
     bool progress = false;
     int c;
@@ -63,13 +65,14 @@ int main(int argc, char** argv) {
             {"ref-path", required_argument, 0, 'r'},
             {"dist", required_argument, 0, 'd'},
             {"gam", required_argument, 0, 'g'},
+            {"unaligned-ins", no_argument, 0, 'u'},
             {"threads", required_argument, 0, 't'},            
             {0, 0, 0, 0}
         };
 
         int option_index = 0;
 
-        c = getopt_long (argc, argv, "hpr:d:g:t:",
+        c = getopt_long (argc, argv, "hpr:d:g:ut:",
                          long_options, &option_index);
 
         // Detect the end of the options.
@@ -89,6 +92,9 @@ int main(int argc, char** argv) {
             break;
         case 'g':
             gam_filename = optarg;
+            break;
+        case 'u':
+            align_insertions = false;
             break;
         case 't':
         {
@@ -188,6 +194,11 @@ int main(int argc, char** argv) {
         maf_write_header(tag, output);
     }
 
+    abpoa_para_t* abpoa_params = nullptr;
+    if (align_insertions) {
+        abpoa_params = construct_abpoa_params();
+    }
+
     // iterate the top-level chains
     int64_t i = 0;
     int64_t num_chains = 0;
@@ -201,7 +212,7 @@ int main(int argc, char** argv) {
     distance_index.for_each_child(distance_index.get_root(), [&](net_handle_t net_handle) {
         if (distance_index.is_chain(net_handle)) {
             convert_chain(*graph, distance_index, gam_info_ptrs, net_handle, ref_path_prefix, progress,
-                          make_pair(++i, num_chains), taf_output, output);
+                          make_pair(++i, num_chains), abpoa_params, taf_output, output);
         }        
     });
 
@@ -211,6 +222,9 @@ int main(int argc, char** argv) {
         cerr << "[vg2maf]: Finished" << endl;
     }
 
+    if (abpoa_params) {
+        abpoa_free_para(abpoa_params);
+    }
     return 0;
 }
 

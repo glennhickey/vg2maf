@@ -21,6 +21,7 @@ extern "C" {
 #include "taf.h"
 #include "sonLib.h"
 }
+#include "abpoa.h"
 
 // number of nodes to scan before sending to parallel batch
 static const int64_t node_buffer_size = 25000;
@@ -73,94 +74,7 @@ static void reverse_complement_mapping_in_place(vg::Mapping* m, const function<i
     }
 }
 
-unordered_map<int64_t, unordered_map<int64_t, string>> get_insertion_index(const vector<vg::Mapping>& mappings) {
 
-    unordered_map<int64_t, unordered_map<int64_t, string>>idx;
-        
-    for (int64_t row = 0; row < mappings.size(); ++row) {
-        const vg::Mapping& mapping = mappings.at(row);
-        int64_t offset = mapping.position().offset();
-        for (int64_t i = 0; i < mapping.edit_size(); ++i) {
-            const vg::Edit& edit = mapping.edit(i);
-            if (edit.from_length() < edit.to_length()) {
-                if (mapping.position().is_reverse()) {
-                    cerr << "skipping backward mapping for insertion index!" << endl;
-                    continue;
-                }
-                // note: offsetting on from_length, since we only want to include the "Dangling" inserted bit
-                idx[offset + edit.from_length()][row] =  edit.sequence().substr(edit.from_length());   
-            }                        
-            offset += edit.from_length();
-        }        
-    }
-
-    return idx;
-}
-
-unordered_map<int64_t, unordered_map<int64_t, string>> align_insertion_index(const unordered_map<int64_t, unordered_map<int64_t, string>>& in_idx) {
-
-    // todo: replace this with abPOA.
-    // for now, we just leave all insertions unaligned.
-    // note: that taffy norm will *not* realign insertions in the middle of blocks.
-    //       could explore chopping (instead of abPOA) but it kind of sounds like more hassle right now
-
-    unordered_map<int64_t, unordered_map<int64_t, string>> out_idx;
-        
-    for (const pair<int64_t, unordered_map<int64_t, string>>& in_elem : in_idx) {
-        const unordered_map<int64_t, string>& in_map = in_elem.second;
-        unordered_map<int64_t, string>& out_map = out_idx[in_elem.first];
-        int64_t width = 0;
-        vector<int64_t> rows;
-        // compute the number of columns (just sum of all lengths since we're not aligning)
-        for (const auto& ie : in_map) {
-            width += ie.second.length();
-            rows.push_back(ie.first);
-        }
-        std::sort(rows.begin(), rows.end());
-        // allocate the output alignment rows
-        for (const auto& ie : in_map) {
-            out_map[ie.first].resize(width);
-        }
-        // write the unaligned output alignment
-        int64_t cur_row = 0;
-        int64_t cur_offset = 0;
-        // do it column by column
-        for (int64_t col = 0; col < width; ++col) {
-            bool shift_row = false;
-            for (int64_t r_idx = 0; r_idx < rows.size(); ++r_idx) {
-                int64_t i_row = rows[r_idx];
-                const string& i_string = in_map.at(i_row);
-                // write the sequence for each row
-                if (r_idx == cur_row) {
-                    out_map[i_row][col] = i_string[cur_offset];
-                    ++cur_offset;
-                    if (cur_offset == i_string.length()) {
-                        shift_row = true;
-                    }
-                } else {
-                    // and the rest is unaligned
-                    out_map[i_row][col] = '-';
-                }
-            }
-            if (shift_row) {
-                cur_offset = 0;
-                ++cur_row;
-                shift_row = false;
-            }
-        }
-        assert(cur_offset == 0 && cur_row == rows.size());
-    }
-
-#ifdef debug
-    for (auto xx : out_idx) {
-        for (auto yy : xx.second) {
-            cerr  << "INS[" << xx.first << "][" << yy.first <<"]=" << yy.second << endl;
-        }
-    }
-#endif
-
-    return out_idx;
-}
 
 vector<handle_t> get_ref_traversal(PathPositionHandleGraph& graph, path_handle_t ref_path_handle, handle_t start_handle, handle_t end_handle) {
 
@@ -225,7 +139,7 @@ vector<handle_t> get_ref_traversal(PathPositionHandleGraph& graph, path_handle_t
 }
 
 Alignment* convert_node(PathPositionHandleGraph& graph, const vector<vg::Alignment>& gam_alignments,
-                        handle_t handle, path_handle_t ref_path_handle) {
+                        handle_t handle, path_handle_t ref_path_handle, abpoa_para_t* abpoa_params) {
 
     // we don't care about the chain orientation, everything below is based on the underlying node being forward
     if (graph.get_is_reverse(handle)) {
@@ -308,7 +222,7 @@ Alignment* convert_node(PathPositionHandleGraph& graph, const vector<vg::Alignme
         auto ins_idx = get_insertion_index(mappings);
 
         // make a dummy alignment [todo: switch to actual alignment]
-        ins_alignments = align_insertion_index(ins_idx);
+        ins_alignments = abpoa_params ? abpoa_align_insertion_index(abpoa_params, ins_idx) : align_insertion_index(ins_idx);
 
         // add enough alignment columns for all insertions
         for (const auto& elem : ins_alignments) {
@@ -554,7 +468,8 @@ Alignment* convert_node(PathPositionHandleGraph& graph, const vector<vg::Alignme
 
 void convert_node_range(PathPositionHandleGraph& graph, GAMInfo* gam_info, const vector<handle_t>& node_buffer,
                         const vector<int64_t>& sorted_nodes, int64_t range_start, int64_t range_end,
-                        path_handle_t ref_path_handle, vector<Alignment*>& out_alignment_buffer) {
+                        path_handle_t ref_path_handle, abpoa_para_t* abpoa_params,
+                        vector<Alignment*>& out_alignment_buffer) {
 
     // perform range query on gam index
     nid_t first_id = graph.get_id(node_buffer[sorted_nodes[range_start]]);
@@ -580,7 +495,7 @@ void convert_node_range(PathPositionHandleGraph& graph, GAMInfo* gam_info, const
     for (int64_t i = range_start; i < range_end; ++i) {
         int64_t buffer_index = sorted_nodes[i];
         const handle_t& handle = node_buffer[buffer_index];
-        out_alignment_buffer[buffer_index] = convert_node(graph, alignments, handle, ref_path_handle);
+        out_alignment_buffer[buffer_index] = convert_node(graph, alignments, handle, ref_path_handle, abpoa_params);
     }
 }
 
@@ -647,7 +562,7 @@ void traverse_snarl(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance
 
 void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_index, vector<GAMInfo*>& gam_info,
                    net_handle_t chain, const string& ref_path, bool progress, const pair<int64_t, int64_t>& chain_idx,
-                   bool taf_output, LW* output) {
+                   abpoa_para_t* abpoa_params, bool taf_output, LW* output) {
 
     net_handle_t start_bound = distance_index.get_bound(chain, false, true);
     net_handle_t end_bound = distance_index.get_bound(chain, true, false);
@@ -777,7 +692,7 @@ void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_
                 int64_t range_start = ranges[j];
                 int64_t range_end = j < ranges.size() - 1 ? ranges[j+1] : sorted_nodes.size();
                 convert_node_range(graph, gam_info[tid], node_buffer, sorted_nodes, range_start, range_end,
-                                   ref_path_handle, alignment_buffer);
+                                   ref_path_handle, abpoa_params, alignment_buffer);
             }
 
             // write them in series

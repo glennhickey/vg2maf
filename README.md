@@ -29,6 +29,8 @@ make test
 
 * a GAM / GAM index pair (from `vg gamsort -i`) can be specified with `-g`. In this case, all `Mapping`s from the alignment that touch a given node will be included in the output, with one row per mapping.  `Edits` (SNP, Insertion, Deletion) are all supported.
 
+* GAM insertions at the same position are aligned using abPOA (with Cactus's default scoring parameters).
+
 ## requirements
 
 * distance index `vg index -j`
@@ -65,9 +67,7 @@ taffy view -i graph.maf -p | bgzip > graph.paf
 ## todo
 
 * verify snarl ordering heuristic (currently use BFS).  i think need something that better respects paths, as `taffy norm` is adding `N`s
-* scaling / parallelism
+* scaling / memory usage
 * support for other graph formats such as `gfa, xg, gbz`
-* alignment of inserted bases (since reads are mapped individually, this information is not in the input).  for now they are left unaligned, but it shuold be very simple to plug in abPOA.
-* 
 
 
