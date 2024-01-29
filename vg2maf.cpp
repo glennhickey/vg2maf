@@ -643,7 +643,6 @@ void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_
     }
 
     vector<handle_t> node_buffer;
-    vector<Alignment*> alignment_buffer;
     Alignment* prev_alignment = nullptr;
     
     // convert the chain, one node/snarl at a time
@@ -684,7 +683,7 @@ void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_
                 prev_id = cur_id;
             }
 
-            alignment_buffer.resize(node_buffer.size());
+            vector<Alignment*> alignment_buffer(node_buffer.size());
 #pragma omp parallel for schedule(dynamic, 1)
             for (int64_t j = 0; j < ranges.size(); ++j) {
                 int tid = omp_get_thread_num();
