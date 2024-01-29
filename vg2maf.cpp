@@ -495,6 +495,7 @@ void convert_node_range(PathPositionHandleGraph& graph, GAMInfo* gam_info, const
     for (int64_t i = range_start; i < range_end; ++i) {
         int64_t buffer_index = sorted_nodes[i];
         const handle_t& handle = node_buffer[buffer_index];
+        assert(out_alignment_buffer[buffer_index] == nullptr);
         out_alignment_buffer[buffer_index] = convert_node(graph, alignments, handle, ref_path_handle, abpoa_params);
     }
 }
@@ -683,7 +684,7 @@ void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_
                 prev_id = cur_id;
             }
 
-            vector<Alignment*> alignment_buffer(node_buffer.size());
+            vector<Alignment*> alignment_buffer(node_buffer.size(), nullptr);
 #pragma omp parallel for schedule(dynamic, 1)
             for (int64_t j = 0; j < ranges.size(); ++j) {
                 int tid = omp_get_thread_num();
