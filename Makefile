@@ -37,7 +37,7 @@ endif
 
 CXX ?= g++
 ifeq (${CXXFLAGS},)
-CXXFLAGS = ""
+CXXFLAGS = 
 endif
 #CXXFLAGS += -O0 -fno-inline -fno-omit-frame-pointer -fsanitize=address
 CXXFLAGS += -O3
