@@ -193,6 +193,7 @@ int main(int argc, char** argv) {
     } else {
         maf_write_header(tag, output);
     }
+    tag_destruct(tag);
 
     abpoa_para_t* abpoa_params = nullptr;
     if (align_insertions) {

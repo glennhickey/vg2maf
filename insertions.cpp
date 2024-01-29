@@ -199,6 +199,9 @@ unordered_map<int64_t, unordered_map<int64_t, string>> abpoa_align_insertion_ind
             }
 
             free(seq_lens);
+            for (int64_t i = 0; i < seq_no; ++i) {
+                free(bseqs[i]);
+            }
             free(bseqs);
 
         }
