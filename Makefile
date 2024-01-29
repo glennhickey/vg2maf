@@ -36,11 +36,18 @@ ifeq ($(shell uname -s),Darwin)
 endif
 
 CXX ?= g++
-#CXXFLAGS := -O0 -fno-inline -fno-omit-frame-pointer -fsanitize=address
-CXXFLAGS := -O3
-CXXFLAGS += -Werror=return-type -std=c++14 -ggdb -g -MMD -MP $(PARALLEL_FLAGS) $(CXXFLAGS)
+ifeq (${CXXFLAGS},)
+CXXFLAGS = ""
+endif
+#CXXFLAGS += -O0 -fno-inline -fno-omit-frame-pointer -fsanitize=address
+CXXFLAGS += -O3
+CXXFLAGS += -Werror=return-type -std=c++14 -ggdb -g -MMD -MP $(PARALLEL_FLAGS)
 
 CXXFLAGS += -I deps/taffy/taffy/submodules/sonLib/C/inc/ -I deps/taffy/taffy/inc -I deps/libbdsg-easy/include -I deps/libvgio/include/ -I deps/abPOA/include
+
+# for abpoa
+export avx2 = 1
+CXXFLAGS += -mavx2
 
 static:
 	CFLAGS="$${CFLAGS} -static" \
