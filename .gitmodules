@@ -1,0 +1,15 @@
+[submodule "deps/libbdsg-easy"]
+	path = deps/libbdsg-easy
+	url = https://github.com/vgteam/libbdsg-easy.git
+[submodule "deps/taffy"]
+	path = deps/taffy
+	url = https://github.com/ComparativeGenomicsToolkit/taffy.git
+[submodule "deps/libvgio"]
+	path = deps/libvgio
+	url = https://github.com/vgteam/libvgio.git
+[submodule "deps/htslib"]
+	path = deps/htslib
+	url = https://github.com/samtools/htslib.git
+[submodule "deps/abPOA"]
+	path = deps/abPOA
+	url = https://github.com/yangao07/abPOA.git
