@@ -1,6 +1,10 @@
 # vg2maf
 
-pangenome graph (vg) to multiple alignment (maf)
+Pangenome graph [(vg)](https://github.com/vgteam/libbdsg) to multiple alignment [(maf)](https://genome.ucsc.edu/FAQ/FAQformat.html#format5) converter.
+
+## downloading
+
+Find a static linux binary release [here](https://github.com/glennhickey/vg2maf/releases)
 
 ## building
 
@@ -12,7 +16,7 @@ git submodule update --init --recursive
 make -j8 ; make -j8
 ```
 
-## static build
+### static build
 
 You can do a static build as follows:
 ```
@@ -40,16 +44,24 @@ make test
 
 * GAM insertions at the same position are aligned using abPOA (with Cactus's default scoring parameters).
 
+## limitations
+
+* doesn't actually convert graph variation (!). the idea is to handle this in `taffy`, but exactly how hasn't been determined or tested.
+* incredibly slow. i think the bottleneck is pulling reads from the GAM index. there's some work to be done in terms of how the threading works, but i don't that fixing it would be nearly enough to solve the speed issues.   
+
 ## requirements
 
 * distance index `vg index -j`
 * graph in `.vg` format (make one with `vg convert -p`)
+* acyclic reference path with, ideally one top-level chain per component.
+     * in practice, this means graphs from `vg construct` or `cactus-pangenome`. 
 
 ## using
 
+Note: you can find a static linux `taffy` binary [here](https://github.com/glennhickey/vg2maf/releases)
+
 Given inptus `graph.gbz` and `aln.gam`:
 
-Note: you can find a static linux `taffy` binary in the latest Cactus [release](https://github.com/ComparativeGenomicsToolkit/cactus/releases)
 
 ```
 # convert to vg
@@ -62,21 +74,15 @@ vg gamsort aln.gam -i aln.sort.gam.gai > aln.sort.gam
 vg index graph.vg -j graph.dist
 
 # make the maf
-vg2maf graph.vg -d graph.dist -r <REF-SAMPLE> -g aln.sort.gam -p > graph.maf
+vg2maf graph.vg -r <REF-SAMPLE> -g aln.sort.gam -p | bgzip >  graph.maf.gz
 
 # taf and normalization
 # note: you can pipe the output of vg2maf directly into taffy
-taffy view -i graph.maf | taffy norm | bgzip > graph.taf.gz
+taffy view -i graph.maf.gz | taffy norm | bgzip > graph.taf.gz
 
 # paf output
-taffy view -i graph.maf -p | bgzip > graph.paf
+taffy view -i graph.maf.gz -p | bgzip > graph.paf
 
 ```
-
-## todo
-
-* verify snarl ordering heuristic (currently use BFS).  i think need something that better respects paths, as `taffy norm` is adding `N`s
-* scaling / memory usage
-* support for other graph formats such as `gfa, xg, gbz`
 
 
