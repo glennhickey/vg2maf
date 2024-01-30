@@ -24,9 +24,9 @@ extern "C" {
 #include "abpoa.h"
 
 // number of nodes to scan before sending to parallel batch
-static const int64_t node_buffer_size = 25000;
+static const int64_t node_buffer_size = 200000;
 // number of bases for each gam index query
-static const int64_t gam_idx_query_bp = 5000;
+static const int64_t gam_idx_query_bp = 10000;
 // biggest hole allowable in id range passed to gam index
 static const int64_t gam_idx_max_gap = 2;
 // maximum read depth (to prevent memory issues)
@@ -139,7 +139,8 @@ vector<handle_t> get_ref_traversal(PathPositionHandleGraph& graph, path_handle_t
 }
 
 Alignment* convert_node(PathPositionHandleGraph& graph, const vector<vg::Alignment>& gam_alignments,
-                        handle_t handle, path_handle_t ref_path_handle, abpoa_para_t* abpoa_params) {
+                        handle_t handle, path_handle_t ref_path_handle, abpoa_para_t* abpoa_params,
+                        bool ref_only) {
 
     // we don't care about the chain orientation, everything below is based on the underlying node being forward
     if (graph.get_is_reverse(handle)) {
@@ -149,7 +150,19 @@ Alignment* convert_node(PathPositionHandleGraph& graph, const vector<vg::Alignme
     vector<step_handle_t> steps = graph.steps_of_handle(handle);
     if (steps.empty()) {
         //cerr << "[vg2maf] warning: Skipping node " << graph.get_id(handle) << " because there are no paths on it" << endl;
-        return NULL;
+        return nullptr;
+    }
+
+    if (ref_only) {
+        bool ref_found = false;
+        for (int64_t i = 0; i < steps.size() && !ref_found; ++i) {
+            if (graph.get_path_handle_of_step(steps[i]) == ref_path_handle) {
+                ref_found = true;
+            }
+        }
+        if (ref_found == false) {
+            return nullptr;
+        }
     }
     
     Alignment* alignment = (Alignment*)st_calloc(1, sizeof(Alignment));
@@ -468,7 +481,7 @@ Alignment* convert_node(PathPositionHandleGraph& graph, const vector<vg::Alignme
 
 void convert_node_range(PathPositionHandleGraph& graph, GAMInfo* gam_info, const vector<handle_t>& node_buffer,
                         const vector<int64_t>& sorted_nodes, int64_t range_start, int64_t range_end,
-                        path_handle_t ref_path_handle, abpoa_para_t* abpoa_params,
+                        path_handle_t ref_path_handle, abpoa_para_t* abpoa_params, bool ref_only, 
                         vector<Alignment*>& out_alignment_buffer) {
 
     // perform range query on gam index
@@ -496,7 +509,7 @@ void convert_node_range(PathPositionHandleGraph& graph, GAMInfo* gam_info, const
         int64_t buffer_index = sorted_nodes[i];
         const handle_t& handle = node_buffer[buffer_index];
         assert(out_alignment_buffer[buffer_index] == nullptr);
-        out_alignment_buffer[buffer_index] = convert_node(graph, alignments, handle, ref_path_handle, abpoa_params);
+        out_alignment_buffer[buffer_index] = convert_node(graph, alignments, handle, ref_path_handle, abpoa_params, ref_only);
     }
 }
 
@@ -563,7 +576,7 @@ void traverse_snarl(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance
 
 void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_index, vector<GAMInfo*>& gam_info,
                    net_handle_t chain, const string& ref_path, bool progress, const pair<int64_t, int64_t>& chain_idx,
-                   abpoa_para_t* abpoa_params, bool taf_output, LW* output) {
+                   abpoa_para_t* abpoa_params, bool ref_only, LW* output) {
 
     net_handle_t start_bound = distance_index.get_bound(chain, false, true);
     net_handle_t end_bound = distance_index.get_bound(chain, true, false);
@@ -644,7 +657,6 @@ void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_
     }
 
     vector<handle_t> node_buffer;
-    Alignment* prev_alignment = nullptr;
     
     // convert the chain, one node/snarl at a time
     for (int64_t i = 0; i < chain_childs.size(); ++i) {
@@ -661,62 +673,69 @@ void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_
         }
 
         if (node_buffer.size() >= node_buffer_size || i == chain_childs.size() - 1) {
-            // sort the nodes into ranges
-            // todo: this logic only required for gam index acces, but think it's fast
-            // enough that it doesn't need to be conditional on -g
-            // sorted_nodes stores offset in node_buffer
-            vector<int64_t> sorted_nodes(node_buffer.size());
-            std::iota(sorted_nodes.begin(), sorted_nodes.end(), 0);
-            std::sort(sorted_nodes.begin(), sorted_nodes.end(), [&graph,&node_buffer](int64_t x1, int64_t x2) {
-                return graph.get_id(node_buffer[x1]) < graph.get_id(node_buffer[x2]);
-            });
-            // ranges stores offsets in sorted_nodes
-            vector<int64_t> ranges;
-            int64_t range_size = numeric_limits<int64_t>::max();
-            nid_t prev_id = 0;
-            for (int64_t j = 0; j < sorted_nodes.size(); ++j) {
-                nid_t cur_id = graph.get_id(node_buffer[sorted_nodes[j]]);
-                if (range_size > gam_idx_query_bp || (j > 0 && cur_id - prev_id > gam_idx_max_gap)) {
-                    ranges.push_back(j);
-                    range_size = 0;
-                }
-                range_size += graph.get_length(node_buffer[sorted_nodes[j]]);
-                prev_id = cur_id;
-            }
 
-            vector<Alignment*> alignment_buffer(node_buffer.size(), nullptr);
-#pragma omp parallel for schedule(dynamic, 1)
-            for (int64_t j = 0; j < ranges.size(); ++j) {
-                int tid = omp_get_thread_num();
-                // these are offsets (open end) in sorted_nodes that define our batch
-                int64_t range_start = ranges[j];
-                int64_t range_end = j < ranges.size() - 1 ? ranges[j+1] : sorted_nodes.size();
-                convert_node_range(graph, gam_info[tid], node_buffer, sorted_nodes, range_start, range_end,
-                                   ref_path_handle, abpoa_params, alignment_buffer);
-            }
-
-            // write them in series
-            for (int64_t j = 0; j < alignment_buffer.size(); ++j) {
-                if (alignment_buffer[j]) {
-                    if (taf_output) {
-                        taf_write_block(prev_alignment, alignment_buffer[j], false, 10000, output);
-                    } else {
-                        maf_write_block(alignment_buffer[j], output);
-                    }
-                    if (prev_alignment) {
-                        alignment_destruct(prev_alignment, true);
-                    }
-                    prev_alignment = alignment_buffer[j];
-                }
-            }
             
-            node_buffer.clear();
+            int64_t num_chunks = max(1UL, node_buffer.size() / node_buffer_size);
+            int64_t last_chunk_size = num_chunks == 1 ? node_buffer.size() : node_buffer.size() - (num_chunks -1 ) * node_buffer_size;
+            for (int64_t chunk = 0; chunk < num_chunks; ++chunk) {
+                int64_t chunk_size = chunk < num_chunks - 1 ? node_buffer_size : last_chunk_size;
+
+                // input buffer (todo: this copy happens because of refactor to add chunking and isn't necessary)
+                vector<handle_t> chunk_node_buffer(chunk_size);
+                int64_t chunk_offset = chunk * node_buffer_size;
+                for (int64_t j = 0; j < chunk_size; ++j) {
+                    chunk_node_buffer[j] = node_buffer[chunk_offset + j];
+                }
+                
+                // sort the nodes into ranges
+                // todo: this logic only required for gam index acces, but think it's fast
+                // enough that it doesn't need to be conditional on -g
+                // sorted_nodes stores offset in node_buffer
+                vector<int64_t> sorted_nodes(chunk_node_buffer.size());
+                std::iota(sorted_nodes.begin(), sorted_nodes.end(), 0);
+                std::sort(sorted_nodes.begin(), sorted_nodes.end(), [&graph,&chunk_node_buffer](int64_t x1, int64_t x2) {
+                    return graph.get_id(chunk_node_buffer[x1]) < graph.get_id(chunk_node_buffer[x2]);
+                });
+                // ranges stores offsets in sorted_nodes
+                vector<int64_t> ranges;
+                int64_t range_size = numeric_limits<int64_t>::max();
+                nid_t prev_id = 0;
+                for (int64_t j = 0; j < sorted_nodes.size(); ++j) {
+                    nid_t cur_id = graph.get_id(chunk_node_buffer[sorted_nodes[j]]);
+                    if (range_size > gam_idx_query_bp || (j > 0 && cur_id - prev_id > gam_idx_max_gap)) {
+                        ranges.push_back(j);
+                        range_size = 0;
+                    }
+                    range_size += graph.get_length(chunk_node_buffer[sorted_nodes[j]]);
+                    prev_id = cur_id;
+                }
+
+                // the output buffer
+                vector<Alignment*> alignment_buffer(chunk_node_buffer.size(), nullptr);
+
+#pragma omp parallel for schedule(dynamic, 1)
+                for (int64_t j = 0; j < ranges.size(); ++j) {
+                    int tid = omp_get_thread_num();
+                    // these are offsets (open end) in sorted_nodes that define our batch
+                    int64_t range_start = ranges[j];
+                    int64_t range_end = j < ranges.size() - 1 ? ranges[j+1] : sorted_nodes.size();
+                    convert_node_range(graph, gam_info[tid], chunk_node_buffer, sorted_nodes, range_start, range_end,
+                                       ref_path_handle, abpoa_params, ref_only, alignment_buffer);
+                }
+
+                // write them in series
+                for (int64_t j = 0; j < alignment_buffer.size(); ++j) {
+                    if (alignment_buffer[j]) {
+                        maf_write_block(alignment_buffer[j], output);
+                        alignment_destruct(alignment_buffer[j], true);
+                    }
+                }
+            }
+            node_buffer.clear();    
         }
+        
     }
     assert(node_buffer.empty());
-    if (prev_alignment) {
-        alignment_destruct(prev_alignment, true);
-    }
 }
 
 unique_ptr<PathHandleGraph> load_graph(istream& graph_stream) {

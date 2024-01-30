@@ -45,7 +45,7 @@ vector<handle_t> get_ref_traversal(PathPositionHandleGraph& graph, path_handle_t
 // convert a node to maf
 // alignment object must be freed with alignmenet_destruct(alignment, true)
 Alignment* convert_node(PathPositionHandleGraph& graph, const vector<vg::Alignment>& gam_alignments, handle_t handle,
-                        path_handle_t ref_path_handle, abpoa_para_t* abpoa_params);
+                        path_handle_t ref_path_handle, abpoa_para_t* abpoa_params, bool ref_only);
 
 // converts a batch of nodes to maf
 // this is used in attempt to aggregate gam index queries into ranges.
@@ -53,13 +53,14 @@ Alignment* convert_node(PathPositionHandleGraph& graph, const vector<vg::Alignme
 // sorted_nodes stores offsets in node_buffer and out_alignment_buffer
 void convert_node_range(PathPositionHandleGraph& graph, GAMInfo* gam_info, const vector<handle_t>& node_buffer,
                         const vector<int64_t>& sorted_nodes, int64_t range_start, int64_t range_end,
-                        path_handle_t ref_path_handle, abpoa_para_t* abpoa_params, vector<Alignment*>& out_alignment_buffer);
+                        path_handle_t ref_path_handle, abpoa_para_t* abpoa_params,
+                        bool ref_only, vector<Alignment*>& out_alignment_buffer);
 
 
 // convert a chain to maf, by scanning its children in order
 void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_index, vector<GAMInfo*>& gam_info,
                    net_handle_t chain, const string& ref_path, bool progress, const pair<int64_t, int64_t>& chain_idx,
-                   abpoa_para_t* abpoa_params, bool taf_output, LW* output);
+                   abpoa_para_t* abpoa_params, bool ref_only, LW* output);
 
 // return the handles inside a snarl in the order that we want them in the maf
 // todo: this function probably needs some work to effectively put complex regions through taffy norm

@@ -43,6 +43,7 @@ void help(char** argv) {
        << "    -r, --ref-prefix NAME     Prefix of reference path(s) [REQUIRED]" << endl
        << "    -g, --gam FILE            Sorted GAM file. Must have .gai index. Make both with \"vg gamsort x.gam -i x.sort.gam.gai > x.sort.gam\"" << endl
        << "    -u, --unaligned-ins       Leave GAM insertions unaligned\n"
+       << "    -o, --only-ref            Only convert nodes on reference path(s)" << endl
        << "    -t, --threads N           Number of threads to use [default: all available]" << endl      
        << endl;
 }    
@@ -54,6 +55,7 @@ int main(int argc, char** argv) {
     string gam_filename;
     bool align_insertions = true;
     bool taf_output = false;
+    bool ref_only = false;
     bool progress = false;
     int c;
     optind = 1; 
@@ -66,13 +68,14 @@ int main(int argc, char** argv) {
             {"dist", required_argument, 0, 'd'},
             {"gam", required_argument, 0, 'g'},
             {"unaligned-ins", no_argument, 0, 'u'},
+            {"only-ref", no_argument, 0, 'o'},
             {"threads", required_argument, 0, 't'},            
             {0, 0, 0, 0}
         };
 
         int option_index = 0;
 
-        c = getopt_long (argc, argv, "hpr:d:g:ut:",
+        c = getopt_long (argc, argv, "hpr:d:g:uot:",
                          long_options, &option_index);
 
         // Detect the end of the options.
@@ -95,6 +98,9 @@ int main(int argc, char** argv) {
             break;
         case 'u':
             align_insertions = false;
+            break;
+        case 'o':
+            ref_only = true;
             break;
         case 't':
         {
@@ -213,7 +219,7 @@ int main(int argc, char** argv) {
     distance_index.for_each_child(distance_index.get_root(), [&](net_handle_t net_handle) {
         if (distance_index.is_chain(net_handle)) {
             convert_chain(*graph, distance_index, gam_info_ptrs, net_handle, ref_path_prefix, progress,
-                          make_pair(++i, num_chains), abpoa_params, taf_output, output);
+                          make_pair(++i, num_chains), abpoa_params, ref_only, output);
         }        
     });
 
