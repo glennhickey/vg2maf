@@ -12,6 +12,15 @@ git submodule update --init --recursive
 make -j8 ; make -j8
 ```
 
+## static build
+
+You can do a static build as follows:
+```
+make clean
+make -j8
+make cleanFast
+make -j8 static
+```
 ## testing
 
 You need to have `vg` in your `PATH`

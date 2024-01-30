@@ -696,7 +696,7 @@ class Vg2mafTest(unittest.TestCase):
         self.assertEqual(len(q_lines), 2)
         _, q_name, q_vals = q_lines[0].split()
         self.assertEqual(q_name, 'x')
-        self.assertEqual(q_vals, '99999999')
+        self.assertEqual(q_vals, '999---99999')
 
         _, q_name2, q_vals2 = q_lines[1].split()
         self.assertEqual(q_name2, 'ins')
