@@ -31,6 +31,8 @@ static const int64_t gam_idx_query_bp = 5000;
 static const int64_t gam_idx_max_gap = 2;
 // maximum read depth (to prevent memory issues)
 static const int64_t gam_max_depth = 1000;
+// maximum snarl size in bp (bigger snarls ignored)
+static const int64_t max_snarl_size_bp = 10000;
 
 //#define debug
 
@@ -513,7 +515,7 @@ void convert_node_range(PathPositionHandleGraph& graph, GAMInfo* gam_info, const
     }
 }
 
-void traverse_snarl(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_index,
+bool traverse_snarl(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_index,
                     net_handle_t snarl, path_handle_t ref_path_handle,
                     bool ref_path_reversed, vector<handle_t>& out_handles) {
 
@@ -544,7 +546,9 @@ void traverse_snarl(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance
     
     // use start-to-end bfs search to order the blocks
     deque<handle_t> bfs_queue;
-    unordered_set<handle_t> visited = {start_handle, end_handle, graph.flip(start_handle)};    
+    unordered_set<handle_t> visited = {start_handle, end_handle, graph.flip(start_handle)};
+    int64_t visited_bp = 0;
+    int64_t out_handles_size = out_handles.size();
     graph.follow_edges(start_handle, false, [&](handle_t other_handle) {
         bfs_queue.push_back(other_handle);                
     });
@@ -559,6 +563,12 @@ void traverse_snarl(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance
             } else {
                 out_handles.push_back(handle);
                 visited.insert(handle);
+                visited_bp += graph.get_length(handle);
+                if (visited_bp > max_snarl_size_bp) {
+                    // snarl's too big: reset the output array and give up
+                    out_handles.resize(out_handles.size());
+                    return false;
+                }
                 graph.follow_edges(handle, false, [&](handle_t other_handle) {
                     bfs_queue.push_back(other_handle);
                 });
@@ -572,11 +582,12 @@ void traverse_snarl(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance
             }
         }
     }
+    return true;
 }
 
-void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_index, vector<GAMInfo*>& gam_info,
-                   net_handle_t chain, const string& ref_path, bool progress, const pair<int64_t, int64_t>& chain_idx,
-                   abpoa_para_t* abpoa_params, bool ref_only, LW* output) {
+static pair<unordered_map<path_handle_t, int64_t>, unordered_map<path_handle_t, int64_t>>
+get_ref_path_indexes(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_index,
+                     net_handle_t& chain, const string& ref_path) {
 
     net_handle_t start_bound = distance_index.get_bound(chain, false, true);
     net_handle_t end_bound = distance_index.get_bound(chain, true, false);
@@ -621,7 +632,7 @@ void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_
         cerr <<"[vg2maf] warning: Skipping chain because no reference path found through chain from " 
              << graph.get_id(start_handle) << ":" << graph.get_is_reverse(start_handle) << " to "
              << graph.get_id(end_handle) << ":" << graph.get_is_reverse(end_handle) << endl;
-        return;
+        return pair<unordered_map<path_handle_t, int64_t>, unordered_map<path_handle_t, int64_t>>();
     }
 
     if (end_ref_paths.size() > 1) {
@@ -631,6 +642,26 @@ void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_
         cerr << "the paths are "; for (const auto xx : end_ref_paths) cerr << graph.get_path_name(xx.first) << ", "; cerr << endl;
     }
 
+    return make_pair(start_ref_paths, end_ref_paths);
+}
+
+void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_index, vector<GAMInfo*>& gam_info,
+                   net_handle_t chain, const string& ref_path, bool progress, const pair<int64_t, int64_t>& chain_idx,
+                   abpoa_para_t* abpoa_params, bool ref_only, LW* output) {
+
+    net_handle_t start_bound = distance_index.get_bound(chain, false, true);
+    net_handle_t end_bound = distance_index.get_bound(chain, true, false);
+    handle_t start_handle = distance_index.get_handle(start_bound, &graph);
+    handle_t end_handle = distance_index.get_handle(end_bound, &graph);
+
+    auto ref_indexes = get_ref_path_indexes(graph, distance_index, chain, ref_path);
+    unordered_map<path_handle_t, int64_t>& start_ref_paths = ref_indexes.first;
+    unordered_map<path_handle_t, int64_t>& end_ref_paths = ref_indexes.second;
+    if (end_ref_paths.empty()) {
+        // warning should have been given inside get_ref_path_indexes()
+        return;
+    }
+    
     path_handle_t ref_path_handle = end_ref_paths.begin()->first;
 
     if (progress) {
@@ -648,7 +679,7 @@ void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_
         chain = distance_index.flip(chain);
     }
 
-    vector<net_handle_t> chain_childs;
+    list<net_handle_t> chain_childs;
     distance_index.for_each_child(chain, [&](net_handle_t net_handle) {
         chain_childs.push_back(net_handle);
     });
@@ -659,20 +690,39 @@ void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_
     vector<handle_t> node_buffer;
     
     // convert the chain, one node/snarl at a time
-    for (int64_t i = 0; i < chain_childs.size(); ++i) {
-        net_handle_t net_handle = chain_childs[i];
+    for (list<net_handle_t>::iterator child_it = chain_childs.begin(); child_it != chain_childs.end(); ++child_it) {
+        net_handle_t& net_handle = *child_it;
+        bool snarl_success = true;
         // queue up all child nodes in order we want to convert
         if (distance_index.is_node(net_handle)) {
             node_buffer.push_back(distance_index.get_handle(net_handle, &graph));
         } else if (distance_index.is_snarl(net_handle)) {
-            traverse_snarl(graph, distance_index, net_handle, ref_path_handle, ref_path_reversed, node_buffer);
-        } else if (distance_index.is_chain(net_handle)) {
-            cerr << "TODO: CHILD CHAIN" << endl;
+            snarl_success = traverse_snarl(graph, distance_index, net_handle, ref_path_handle, ref_path_reversed, node_buffer);
         } else {
-            assert(false);
+            assert(distance_index.is_chain(net_handle));
         }
+        // if the snarl is too big, then we just push its children into the list
+        if (!snarl_success || distance_index.is_chain(net_handle)) {
+            list<net_handle_t>::iterator insert_before = child_it;
+            ++insert_before;
+            auto recurse_ref_indexes = get_ref_path_indexes(graph, distance_index, chain, ref_path);
+            if (!recurse_ref_indexes.second.empty()) {
+                vector<net_handle_t> child_buffer;                
+                distance_index.for_each_child(net_handle, [&](net_handle_t recurse_net_handle) {
+                    child_buffer.push_back(recurse_net_handle);
+                });
+                bool recurse_path_reversed = recurse_ref_indexes.second.begin()->second < recurse_ref_indexes.first.at(ref_path_handle);
+                if (recurse_path_reversed) {
+                    std::reverse(child_buffer.begin(), child_buffer.end());
+                }
+                for (auto& recurse_net_handle : child_buffer) {
+                    chain_childs.insert(insert_before, recurse_net_handle);
+                }
+            }
+            continue;
+        } 
 
-        if (node_buffer.size() >= node_buffer_size || i == chain_childs.size() - 1) {
+        if (node_buffer.size() >= node_buffer_size || net_handle == chain_childs.back()) {
 
             
             int64_t num_chunks = max(1UL, node_buffer.size() / node_buffer_size);

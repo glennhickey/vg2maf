@@ -64,7 +64,7 @@ void convert_chain(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_
 
 // return the handles inside a snarl in the order that we want them in the maf
 // todo: this function probably needs some work to effectively put complex regions through taffy norm
-void traverse_snarl(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_index,
+bool traverse_snarl(PathPositionHandleGraph& graph, SnarlDistanceIndex& distance_index,
                     net_handle_t snarl, path_handle_t ref_path_handle,
                     bool ref_path_reversed, vector<handle_t>& out_handles);
 
